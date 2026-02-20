@@ -31,7 +31,25 @@ dependencies {
     testImplementation "org.junit.jupiter:junit-jupiter"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
+application {
+    mainClass = "io.github.em.verilog.cli.VeriLogCli"}
 
+/**
+ * build FatJar:
+ *    build/libs/<name>-<version>-all.jar
+ */
+shadowJar {
+    archiveClassifier.set("all")
+    mergeServiceFiles()
+
+    manifest {
+        attributes "Main-Class": application.mainClass.get()
+    }
+}
+
+tasks.build {
+    dependsOn tasks.shadowJar
+}
 test {
     useJUnitPlatform()
 }
