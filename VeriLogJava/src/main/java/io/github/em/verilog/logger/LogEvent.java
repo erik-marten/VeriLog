@@ -9,6 +9,9 @@ final class LogEvent {
     final Map<String, Object> fields;
     final Instant ts;
 
+    static final LogEvent POISON =
+            new LogEvent(null, null, null, null);
+
     LogEvent(VeriLoggerConfig.Level level, String message, Map<String, Object> fields, Instant ts) {
         this.level = level;
         this.message = message;
