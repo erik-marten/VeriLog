@@ -1,3 +1,5 @@
+import java.time.Year
+
 plugins {
     id "java-library"
     id "com.gradleup.shadow" version "9.3.1"
@@ -34,6 +36,23 @@ dependencies {
 application {
     mainClass = "io.github.em.verilog.cli.VeriLogCli"}
 
+
+
+def currentYear = Year.now().value
+def author = "Erik Marten"
+
+tasks.register("generateLicense", Copy) {
+    from("LICENSE.template")
+    into("$buildDir/generated")
+    rename { "LICENSE" }
+
+    expand(
+            year: currentYear,
+            author: author
+    )
+    filteringCharset = "UTF-8"
+}
+
 /**
  * build FatJar:
  *    build/libs/<name>-<version>-all.jar
@@ -41,12 +60,20 @@ application {
 shadowJar {
     archiveClassifier.set("all")
     mergeServiceFiles()
+    dependsOn tasks.generateLicense
+
+    exclude("META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/DEPENDENCIES")
+
+    from("$buildDir/generated/LICENSE") { into("META-INF") }
+
+    from("NOTICE") { into("META-INF"); rename { "NOTICE-VERILOGGER" } }
+
+    from("THIRD-PARTY-LICENSES") { into("META-INF") }
 
     manifest {
         attributes "Main-Class": application.mainClass.get()
     }
 }
-
 tasks.build {
     dependsOn tasks.shadowJar
 }
