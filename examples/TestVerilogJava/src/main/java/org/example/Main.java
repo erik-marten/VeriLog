@@ -94,7 +94,7 @@ public class Main {
             return new KeyPair(pub, priv);
         }
 
-        // Falls nicht vorhanden → neu erzeugen
+        // if not present create new
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
         kpg.initialize(256);
         KeyPair kp = kpg.generateKeyPair();
