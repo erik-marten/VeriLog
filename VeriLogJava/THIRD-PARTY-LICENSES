@@ -1,0 +1,11 @@
+THIRD-PARTY-LICENSES
+
+This distribution includes:
+
+1. Bouncy Castle
+   License: MIT-style license
+   https://www.bouncycastle.org/
+
+2. Jackson Databind
+   License: Apache License 2.0
+   https://github.com/FasterXML/jackson-databind
