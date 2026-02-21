@@ -19,8 +19,11 @@ public final class VeriLogger implements Closeable {
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicBoolean faulted = new AtomicBoolean(false);
 
+    private final CountDownLatch terminated = new CountDownLatch(1);
     private final Thread writerThread;
     private final LogWriter writer;
+
+    private Thread shutdownHook = null;
 
     public static VeriLogger create(VeriLoggerConfig cfg) throws IOException {
         return new VeriLogger(cfg);
@@ -33,20 +36,42 @@ public final class VeriLogger implements Closeable {
         this.queue = new ArrayBlockingQueue<>(cfg.queueCapacity);
         this.enqueuer = new BackpressureEnqueuer(cfg, queue);
 
-        this.writer = new LogWriter(cfg, queue, metrics, closed, faulted);
+        this.writer = new LogWriter(cfg, queue, metrics, closed, faulted, terminated);
 
         this.writerThread = new Thread(writer, "verilog-writer");
+        this.writerThread.setDaemon(false);
         this.writerThread.start();
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try { close(); } catch (Exception ignored) {}
-        }));
+        if (cfg.installShutdownHook) {
+            this.shutdownHook = new Thread(() -> {
+                try {
+                    // Best-effort close with Timeout
+                    close(cfg.shutdownTimeoutMs);
+                } catch (Throwable ignored) {
+                }
+            }, "verilog-shutdown-hook");
+
+            Runtime.getRuntime().addShutdownHook(this.shutdownHook);
+        } else {
+            this.shutdownHook = null;
+        }
     }
 
-    public void debug(String msg) { log(VeriLoggerConfig.Level.DEBUG, msg, Map.of()); }
-    public void info(String msg)  { log(VeriLoggerConfig.Level.INFO, msg, Map.of()); }
-    public void warn(String msg)  { log(VeriLoggerConfig.Level.WARN, msg, Map.of()); }
-    public void error(String msg) { log(VeriLoggerConfig.Level.ERROR, msg, Map.of()); }
+    public void debug(String msg) {
+        log(VeriLoggerConfig.Level.DEBUG, msg, Map.of());
+    }
+
+    public void info(String msg) {
+        log(VeriLoggerConfig.Level.INFO, msg, Map.of());
+    }
+
+    public void warn(String msg) {
+        log(VeriLoggerConfig.Level.WARN, msg, Map.of());
+    }
+
+    public void error(String msg) {
+        log(VeriLoggerConfig.Level.ERROR, msg, Map.of());
+    }
 
     public void log(VeriLoggerConfig.Level level, String message, Map<String, Object> fields) {
         Objects.requireNonNull(level, "level");
@@ -68,24 +93,58 @@ public final class VeriLogger implements Closeable {
         if (!ok) metrics.incDropped();
     }
 
-    public long droppedCount() { return metrics.droppedCount(); }
-    public long writtenCount() { return metrics.writtenCount(); }
+    public long droppedCount() {
+        return metrics.droppedCount();
+    }
+
+    public long writtenCount() {
+        return metrics.writtenCount();
+    }
 
     @Override
     public void close() throws IOException {
-        close(Duration.ofSeconds(5).toMillis());
+        close(cfg.shutdownTimeoutMs);
     }
 
     public void close(long timeoutMs) throws IOException {
         if (!closed.compareAndSet(false, true)) return;
 
-        writerThread.interrupt();
+        // Hook entfernen, damit close nicht doppelt durch Hook + User läuft
+        if (shutdownHook != null) {
+            try {
+                Runtime.getRuntime().removeShutdownHook(shutdownHook);
+            } catch (IllegalStateException ignored) {
+                // JVM ist schon im Shutdown -> removeShutdownHook nicht erlaubt, ok.
+            }
+        }
+
+        // 1) Poison Pill rein (oder queue.close())
+        long deadline = System.currentTimeMillis() + Math.max(0, timeoutMs);
+        boolean offered = false;
+        while (!offered && System.currentTimeMillis() < deadline) {
+            try {
+                offered = queue.offer(LogEvent.POISON, 50, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
+        // 2) Warten bis Writer wirklich fertig ist
+        long remaining = deadline - System.currentTimeMillis();
+        if (remaining < 0) remaining = 0;
+
         try {
-            writerThread.join(timeoutMs);
+            boolean ok = terminated.await(remaining, TimeUnit.MILLISECONDS);
+            if (!ok) {
+                // Notfall: best effort und hart melden
+                writer.flushAndCloseBestEffort();
+                throw new IOException("Timed out waiting for writer thread to terminate.");
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-        } finally {
             writer.flushAndCloseBestEffort();
+            throw new IOException("Interrupted while waiting for writer to terminate.", e);
         }
     }
 }

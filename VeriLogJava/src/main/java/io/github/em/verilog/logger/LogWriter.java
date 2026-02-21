@@ -5,6 +5,8 @@ import io.github.em.verilog.audit.HashChainState;
 import io.github.em.verilog.audit.SignedEntryFactory;
 import io.github.em.verilog.io.FramedLogFile;
 
+import java.util.concurrent.CountDownLatch;
+
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -35,13 +37,15 @@ final class LogWriter implements Runnable {
 
     private final SignedEntryFactory signedFactory = new SignedEntryFactory();
     private final HashChainState chain = HashChainState.fresh();
+    private final CountDownLatch terminated;
 
     LogWriter(
             VeriLoggerConfig cfg,
             BlockingQueue<LogEvent> queue,
             LoggerMetrics metrics,
             AtomicBoolean closed,
-            AtomicBoolean faulted
+            AtomicBoolean faulted,
+            CountDownLatch terminated
     ) throws IOException {
         this.cfg = cfg;
         this.queue = queue;
@@ -51,6 +55,7 @@ final class LogWriter implements Runnable {
 
         this.flushPolicy = new FlushPolicy(cfg.flushEveryN, cfg.flushEveryMs, cfg.fsyncOnFlush);
         this.rotationPolicy = new RotationPolicy(cfg.rotateBytes, cfg.filePrefix);
+        this.terminated = terminated;
 
         Path current = currentPath();
         Files.createDirectories(cfg.logDir);
@@ -71,21 +76,38 @@ final class LogWriter implements Runnable {
     @Override
     public void run() {
         try {
-            while (!closed.get() || !queue.isEmpty()) {
+            while (true) {
                 LogEvent ev = null;
                 try {
                     ev = queue.poll(50, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException ignored) {
+                    // shutdown is handled via 'closed' + POISON
                 }
 
-                if (ev != null) writeOne(ev);
+                if (ev != null) {
+                    if (ev == LogEvent.POISON) {
+                        break; // Stop-Signal
+                    }
+                    writeOne(ev);
+                }
 
                 maybeFlush();
 
                 if (bytesWrittenCurrent >= rotationPolicy.rotateBytes) rotate();
+
+                // when close() and queue empty terminate cleanly
+                if (closed.get() && queue.isEmpty()) break;
+            }
+
+            // after stop drain rest of events
+            LogEvent ev;
+            while ((ev = queue.poll()) != null) {
+                if (ev == LogEvent.POISON) continue;
+                writeOne(ev);
             }
 
             file.flush(true);
+
         } catch (Throwable t) {
             faulted.set(true);
             try {
@@ -94,9 +116,10 @@ final class LogWriter implements Runnable {
             }
         } finally {
             try {
-                file.close();
+                if (file != null) file.close();
             } catch (Exception ignored) {
             }
+            terminated.countDown();
         }
     }
 
@@ -126,7 +149,7 @@ final class LogWriter implements Runnable {
                     ev.ts
             );
 
-            long seqForFrame = chain.nextSeq() - 1; // we just allocated it
+            long seqForFrame = chain.nextSeq() - 1; //  just allocated it
             file.appendEncryptedJson(FramedLogFile.TYPE_LOG, seqForFrame, signedEntryJson);
 
             metrics.incWritten();
@@ -195,6 +218,7 @@ final class LogWriter implements Runnable {
             // race: someone created it between exists() and createFile()
         }
     }
+
     private Path currentPath() {
         return cfg.logDir.resolve(cfg.currentFileName);
     }
