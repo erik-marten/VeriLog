@@ -49,6 +49,9 @@ public final class VeriLoggerConfig {
 
     public boolean rotateOnStartup = true;
 
+    public boolean installShutdownHook = true;
+    public long shutdownTimeoutMs = 5000; // secure Default
+
     public void validate() {
         Objects.requireNonNull(logDir, "logDir");
         Objects.requireNonNull(actor, "actor");
