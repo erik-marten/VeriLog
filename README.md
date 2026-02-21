@@ -132,3 +132,20 @@ VeriLog guarantees detection of such tampering.
 
 **!** Early stage.
 APIs may change until `1.0.0`.
+
+-----
+
+## License
+
+Copyright 2026 Erik Marten
+
+This project is licensed under the Apache License 2.0.
+
+You may use, modify, and distribute this software in accordance with the License.
+A copy of the License is provided in the LICENSE file.
+
+This software provides cryptographic functionality. Users are responsible
+for ensuring compliance with all applicable laws and regulations regarding
+the use, distribution, and export of cryptographic software.
+
+Distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
