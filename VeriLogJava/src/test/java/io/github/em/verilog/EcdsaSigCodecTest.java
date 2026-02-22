@@ -1,5 +1,6 @@
 package io.github.em.verilog;
 
+import io.github.em.verilog.errors.VeriLogFormatException;
 import org.junit.jupiter.api.Test;
 
 import java.security.SecureRandom;
@@ -10,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class EcdsaSigCodecTest {
 
     @Test
-    void rawToDer_andBack_roundTrips() {
+    void rawToDer_and_back_round_trips() throws VeriLogFormatException {
         SecureRandom rng = new SecureRandom();
         byte[] raw = new byte[64];
         rng.nextBytes(raw);
@@ -22,7 +23,7 @@ public class EcdsaSigCodecTest {
     }
 
     @Test
-    void should_prefix_high_bit_with_zero() {
+    void should_prefix_high_bit_with_zero() throws VeriLogFormatException {
         byte[] raw = new byte[64];
         Arrays.fill(raw, (byte) 0);
         // Set MSB of r and s, so DER INTEGER must be prefixed with 0x00 to remain positive.
@@ -36,7 +37,7 @@ public class EcdsaSigCodecTest {
 
     @Test
     void should_reject_wrong_length() {
-        assertThrows(IllegalArgumentException.class, () -> EcdsaSigCodec.rawToDer(new byte[63]));
-        assertThrows(IllegalArgumentException.class, () -> EcdsaSigCodec.rawToDer(new byte[65]));
+        assertThrows(VeriLogFormatException.class, () -> EcdsaSigCodec.rawToDer(new byte[63]));
+        assertThrows(VeriLogFormatException.class, () -> EcdsaSigCodec.rawToDer(new byte[65]));
     }
 }

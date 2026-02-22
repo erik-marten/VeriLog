@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "note": "VeriLog v1 golden vector. Signature is raw r||s (64 bytes) base64. Verify should succeed.",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUvGzZbgx77wFkaX+UCV0O9sQFZ9r\nRVoIubAmAEflFUe8lDjuwNucSGl/JljeixVAoKx0HFDCdsSZX93oKZ8BHg==\n-----END PUBLIC KEY-----\n",
+  "keyIdHex": "e703d8869c1976143845b4e2a7d1979fea8978821689fe7160cf0658bcb18c08",
+  "entryUnsigned": {
+    "version": 1,
+    "seq": 1,
+    "ts": "2026-02-20T12:34:56.789Z",
+    "actor": "api",
+    "eventType": "USER_LOGIN",
+    "event": {
+      "user": "alice",
+      "ip": "203.0.113.10",
+      "success": true
+    },
+    "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "keyId": "e703d8869c1976143845b4e2a7d1979fea8978821689fe7160cf0658bcb18c08"
+  },
+  "canonicalPayloadJson": "{\"actor\":\"api\",\"event\":{\"ip\":\"203.0.113.10\",\"success\":true,\"user\":\"alice\"},\"eventType\":\"USER_LOGIN\",\"keyId\":\"e703d8869c1976143845b4e2a7d1979fea8978821689fe7160cf0658bcb18c08\",\"prevHash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"seq\":1,\"ts\":\"2026-02-20T12:34:56.789Z\",\"version\":1}",
+  "entryHashHex": "9c2dc493e1a0cdb28c50cad955fef9d40be73ac98ce165e47de80663c08f684d",
+  "signatureBase64_rawRconcatS": "iiXfANhINShsmMGsEFjrrnWGdX1moI43gWLdGRk1BF9qriXGkk1ZhA4IvthHFN09OgmlgmjYf4fEXEOwNR6How=="
+}

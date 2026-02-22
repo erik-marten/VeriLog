@@ -9,21 +9,30 @@
  */
 package io.github.em.verilog.sign;
 
+import io.github.em.verilog.errors.VeriLogFormatException;
 import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 import org.bouncycastle.crypto.util.PublicKeyFactory;
 
-public final class BcPublicKeyLoader {
-    private BcPublicKeyLoader() {}
+import java.util.Objects;
 
-    public static ECPublicKeyParameters fromSpkiDer(byte[] spkiDer) {
+public final class BcPublicKeyLoader {
+    private BcPublicKeyLoader() {
+    }
+
+    public static ECPublicKeyParameters fromSpkiDer(byte[] spkiDer) throws VeriLogFormatException {
+        Objects.requireNonNull(spkiDer, "spkiDer");
+
         try {
             var key = PublicKeyFactory.createKey(spkiDer);
             if (!(key instanceof ECPublicKeyParameters)) {
-                throw new IllegalArgumentException("Not an EC public key");
+                throw new VeriLogFormatException("format.key.not_ec_public");
             }
             return (ECPublicKeyParameters) key;
+        } catch (VeriLogFormatException e) {
+            throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load public key", e);
+            // bad DER / unsupported algorithm / malformed data
+            throw new VeriLogFormatException("format.key.spki_invalid", e);
         }
     }
 }
