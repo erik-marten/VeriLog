@@ -9,25 +9,50 @@
  */
 package io.github.em.verilog;
 
+import io.github.em.verilog.errors.VeriLogCryptoException;
+import io.github.em.verilog.errors.VeriLogFormatException;
+
 import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.Objects;
 
 public final class PemKeys {
     private PemKeys() {}
 
-    public static PublicKey importEcPublicKeyFromPem(String pem) {
+    public static PublicKey importEcPublicKeyFromPem(String pem) throws VeriLogFormatException, VeriLogCryptoException {
+        Objects.requireNonNull(pem, "pem");
+
         try {
             String b64 = pem
                     .replace("-----BEGIN PUBLIC KEY-----", "")
                     .replace("-----END PUBLIC KEY-----", "")
                     .replaceAll("\\s+", "");
-            byte[] der = Base64.getDecoder().decode(b64);
+
+            if (b64.isEmpty()) {
+                throw new VeriLogFormatException("format.pem.empty");
+            }
+
+            byte[] der;
+            try {
+                der = Base64.getDecoder().decode(b64);
+            } catch (IllegalArgumentException e) {
+                throw new VeriLogFormatException("format.pem.base64_invalid", e);
+            }
+
             X509EncodedKeySpec spec = new X509EncodedKeySpec(der);
             return KeyFactory.getInstance("EC").generatePublic(spec);
+
+        } catch (VeriLogFormatException e) {
+            throw e;
+        } catch (NoSuchAlgorithmException e) {
+            // should never happen on a normal JVM
+            throw new VeriLogCryptoException("crypto.ec_keyfactory_unavailable", e);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to parse EC public key PEM", e);
+            // invalid DER, wrong key type, etc.
+            throw new VeriLogFormatException("format.pem.public_key_invalid", e);
         }
     }
 }

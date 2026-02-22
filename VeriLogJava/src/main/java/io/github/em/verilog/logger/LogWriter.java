@@ -12,6 +12,7 @@ package io.github.em.verilog.logger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.em.verilog.audit.HashChainState;
 import io.github.em.verilog.audit.SignedEntryFactory;
+import io.github.em.verilog.errors.VeriLogIoException;
 import io.github.em.verilog.io.FramedLogFile;
 
 import java.util.concurrent.CountDownLatch;
@@ -55,7 +56,7 @@ final class LogWriter implements Runnable {
             AtomicBoolean closed,
             AtomicBoolean faulted,
             CountDownLatch terminated
-    ) throws IOException {
+    ) throws VeriLogIoException {
         this.cfg = cfg;
         this.queue = queue;
         this.metrics = metrics;
@@ -66,20 +67,23 @@ final class LogWriter implements Runnable {
         this.rotationPolicy = new RotationPolicy(cfg.rotateBytes, cfg.filePrefix);
         this.terminated = terminated;
 
-        Path current = currentPath();
-        Files.createDirectories(cfg.logDir);
+        try {
+            Path current = currentPath();
+            Files.createDirectories(cfg.logDir);
 
-        if (cfg.rotateOnStartup && Files.exists(current) && Files.size(current) > 0) {
-            rotateExistingOnStartup(current);
-        }
+            if (cfg.rotateOnStartup && Files.exists(current) && Files.size(current) > 0) {
+                rotateExistingOnStartup(current);
+            }
 
 // Create file with 0600 only if it doesn't exist yet (POSIX only)
-        ensureFileExistsWith0600IfPossible(current);
-
-        this.file = FramedLogFile.openOrCreate(current, cfg.encryptionKey32, cfg.aadPrefix);
-        this.nextSeq = file.nextSeq();
-        this.bytesWrittenCurrent = Files.exists(current) ? Files.size(current) : 0;
-        this.lastFlushMs = System.currentTimeMillis();
+            ensureFileExistsWith0600IfPossible(current);
+            this.file = FramedLogFile.openOrCreate(current, cfg.encryptionKey32, cfg.aadPrefix);
+            this.nextSeq = file.nextSeq();
+            this.bytesWrittenCurrent = Files.exists(current) ? Files.size(current) : 0;
+            this.lastFlushMs = System.currentTimeMillis();
+        } catch (IOException e) {
+            throw new VeriLogIoException("io.create_failed", e.getCause());
+        }
     }
 
     @Override
@@ -184,24 +188,29 @@ final class LogWriter implements Runnable {
         }
     }
 
-    private void rotate() throws IOException {
-        file.flush(true);
-        file.close();
-
-        Path cur = currentPath();
-        Path rotated = rotationPolicy.rotatedPath(cfg.logDir);
-
+    protected void rotate() throws VeriLogIoException {
         try {
-            Files.move(cur, rotated, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(cur, rotated, StandardCopyOption.REPLACE_EXISTING);
-        }
+            file.flush(true);
+            file.close();
 
-        this.file = FramedLogFile.openOrCreate(cur, cfg.encryptionKey32, cfg.aadPrefix);
-        this.nextSeq = file.nextSeq();
-        this.bytesWrittenCurrent = Files.size(cur);
-        this.sinceFlush = 0;
-        this.lastFlushMs = System.currentTimeMillis();
+            Path cur = currentPath();
+            Path rotated = rotationPolicy.rotatedPath(cfg.logDir);
+
+            try {
+                Files.move(cur, rotated, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(cur, rotated, StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            this.file = FramedLogFile.openOrCreate(cur, cfg.encryptionKey32, cfg.aadPrefix);
+            this.nextSeq = file.nextSeq();
+            this.bytesWrittenCurrent = Files.size(cur);
+            this.sinceFlush = 0;
+            this.lastFlushMs = System.currentTimeMillis();
+
+        } catch (IOException e) {
+            throw new VeriLogIoException("io.rotate_failed", e, currentPath().toString());
+        }
     }
 
     private void rotateExistingOnStartup(Path current) throws IOException {
@@ -232,7 +241,7 @@ final class LogWriter implements Runnable {
         return cfg.logDir.resolve(cfg.currentFileName);
     }
 
-    private FramedLogFile openOrResumeCurrentFile() throws IOException {
+    private FramedLogFile openOrResumeCurrentFile() throws VeriLogIoException {
         return FramedLogFile.openOrCreate(currentPath(), cfg.encryptionKey32, cfg.aadPrefix);
     }
 

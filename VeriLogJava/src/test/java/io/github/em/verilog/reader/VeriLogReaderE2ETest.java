@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.em.verilog.CanonicalJson;
 import io.github.em.verilog.CryptoUtil;
 import io.github.em.verilog.crypto.XChaCha20Poly1305;
+import io.github.em.verilog.errors.VeriLogCryptoException;
 import org.bouncycastle.asn1.nist.NISTNamedCurves;
 import org.bouncycastle.crypto.digests.SHA256Digest;
 import org.bouncycastle.crypto.generators.ECKeyPairGenerator;
@@ -25,7 +26,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class VeriLogReaderEndToEndTest {
+class VeriLogReaderE2ETest {
 
     private static final ObjectMapper OM = new ObjectMapper();
     private static final SecureRandom RNG = new SecureRandom();
@@ -371,7 +372,7 @@ class VeriLogReaderEndToEndTest {
      * Must match reader verifier expectations:
      * verifier computes digest = SHA256(entryHash32) and verifies ECDSA over that digest.
      */
-    private static byte[] signEntryHashLikeWriter(byte[] entryHash32, ECPrivateKeyParameters priv) {
+    private static byte[] signEntryHashLikeWriter(byte[] entryHash32, ECPrivateKeyParameters priv) throws VeriLogCryptoException {
         if (entryHash32 == null || entryHash32.length != 32) throw new IllegalArgumentException();
 
         byte[] digest = CryptoUtil.sha256(entryHash32);
