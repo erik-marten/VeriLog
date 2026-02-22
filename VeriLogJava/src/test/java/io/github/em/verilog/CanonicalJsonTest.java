@@ -2,6 +2,8 @@ package io.github.em.verilog;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.github.em.verilog.errors.VeriLogException;
+import io.github.em.verilog.errors.VeriLogJsonException;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -29,5 +31,29 @@ public class CanonicalJsonTest {
     @Test
     void should_reject_floating_point_numbers() {
         assertThrows(IllegalArgumentException.class, () -> CanonicalJson.canonicalize("{\"x\": 1.25}"));
+    }
+
+    @Test
+    void should_throw_json_exception_when_input_is_not_valid_json() {
+        // invalid JSON (trailing comma)
+        String input = "{\"a\":1,}";
+
+        VeriLogJsonException ex = assertThrows(
+                VeriLogJsonException.class,
+                () -> CanonicalJson.canonicalize(input)
+        );
+
+        // Category
+        assertEquals(VeriLogException.Category.JSON, ex.getCategory());
+
+        // Message key
+        assertEquals("json.canonicalize_failed", ex.getMessageKey());
+
+        // Message
+        assertEquals("Failed to canonicalize JSON at line 1, column 8", ex.getMessage());
+
+        // Cause preserved
+        assertNotNull(ex.getCause());
+        assertTrue(ex.getCause() instanceof com.fasterxml.jackson.core.JsonProcessingException);
     }
 }

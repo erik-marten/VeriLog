@@ -13,8 +13,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.github.em.verilog.errors.VeriLogJsonException;
+import io.github.em.verilog.errors.VeriLogCryptoException;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -22,13 +23,23 @@ import java.util.List;
 public final class CanonicalJson {
     private CanonicalJson() {}
 
-    public static String canonicalize(String json) throws IOException {
+    public static String canonicalize(String json) throws VeriLogJsonException, VeriLogCryptoException {
         ObjectMapper mapper = new ObjectMapper();
-        JsonNode node = mapper.readTree(json);
+        JsonNode node = null;
+        try {
+            node = mapper.readTree(json);
+        }catch (com.fasterxml.jackson.core.JsonProcessingException e){
+            throw new VeriLogJsonException(
+                    "json.canonicalize_failed",
+                    e,
+                    e.getLocation().getLineNr(),
+                    e.getLocation().getColumnNr()
+            );
+        }
         return canonicalize(node);
     }
 
-    public static String canonicalize(JsonNode node) throws IOException {
+    public static String canonicalize(JsonNode node) throws VeriLogCryptoException {
         StringBuilder sb = new StringBuilder();
         writeNode(node, sb);
         return sb.toString();

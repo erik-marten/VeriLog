@@ -9,14 +9,20 @@
  */
 package io.github.em.verilog;
 
+import io.github.em.verilog.errors.VeriLogFormatException;
+
 import java.util.Arrays;
 
 public final class EcdsaSigCodec {
     private EcdsaSigCodec() {}
 
     // raw: 64 bytes r||s (each 32 bytes big-endian)
-    public static byte[] rawToDer(byte[] raw64) {
-        if (raw64.length != 64) throw new IllegalArgumentException("Expected 64-byte raw signature");
+    public static byte[] rawToDer(byte[] raw64) throws VeriLogFormatException {
+        if (raw64 == null) throw new NullPointerException("raw64");
+        if (raw64.length != 64) {
+            throw new VeriLogFormatException("format.sig_raw_len", raw64.length);
+        }
+
         byte[] r = Arrays.copyOfRange(raw64, 0, 32);
         byte[] s = Arrays.copyOfRange(raw64, 32, 64);
 
@@ -24,7 +30,9 @@ public final class EcdsaSigCodec {
         byte[] sEnc = encodeAsn1IntUnsigned(s);
 
         int len = 2 + rEnc.length + 2 + sEnc.length;
-        if (len > 127) throw new IllegalArgumentException("DER length too large for short form");
+        if (len > 127) {
+            throw new VeriLogFormatException("format.sig_der_len_too_large", len);
+        }
 
         byte[] out = new byte[2 + len];
         out[0] = 0x30; // SEQUENCE
@@ -41,16 +49,24 @@ public final class EcdsaSigCodec {
     }
 
     // Minimal DER parser for SEQUENCE(INTEGER r, INTEGER s)
-    public static byte[] derToRaw(byte[] der) {
-        if (der.length < 8 || der[0] != 0x30) throw new IllegalArgumentException("Not a DER SEQUENCE");
-        int idx = 2; // assumes short-form length
+    public static byte[] derToRaw(byte[] der) throws VeriLogFormatException {
+        if (der == null) throw new NullPointerException("der");
+        if (der.length < 8) throw new VeriLogFormatException("format.sig_der_too_short", der.length);
+        if (der[0] != 0x30) throw new VeriLogFormatException("format.sig_der_not_seq");
 
-        if (der[idx++] != 0x02) throw new IllegalArgumentException("Expected INTEGER");
+        // short-form length only (as before)
+        int idx = 2;
+
+        if (idx >= der.length || der[idx++] != 0x02) throw new VeriLogFormatException("format.sig_der_expected_int", "r");
+        if (idx >= der.length) throw new VeriLogFormatException("format.sig_der_truncated");
         int rLen = der[idx++] & 0xFF;
+        if (idx + rLen > der.length) throw new VeriLogFormatException("format.sig_der_truncated");
         byte[] r = Arrays.copyOfRange(der, idx, idx + rLen); idx += rLen;
 
-        if (der[idx++] != 0x02) throw new IllegalArgumentException("Expected INTEGER");
+        if (idx >= der.length || der[idx++] != 0x02) throw new VeriLogFormatException("format.sig_der_expected_int", "s");
+        if (idx >= der.length) throw new VeriLogFormatException("format.sig_der_truncated");
         int sLen = der[idx++] & 0xFF;
+        if (idx + sLen > der.length) throw new VeriLogFormatException("format.sig_der_truncated");
         byte[] s = Arrays.copyOfRange(der, idx, idx + sLen);
 
         return concat(pad32(stripLeadingZero(r)), pad32(stripLeadingZero(s)));
@@ -81,8 +97,8 @@ public final class EcdsaSigCodec {
         return x;
     }
 
-    private static byte[] pad32(byte[] be) {
-        if (be.length > 32) throw new IllegalArgumentException("Integer too large for P-256");
+    private static byte[] pad32(byte[] be) throws VeriLogFormatException {
+        if (be.length > 32) throw new VeriLogFormatException("format.sig_int_too_large", be.length);
         byte[] out = new byte[32];
         System.arraycopy(be, 0, out, 32 - be.length, be.length);
         return out;
