@@ -9,6 +9,8 @@
  */
 package io.github.em.verilog.logger;
 
+import io.github.em.verilog.errors.VeriLogException;
+
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -24,15 +26,16 @@ final class BackpressureEnqueuer {
 
     boolean enqueue(LogEvent ev) {
         try {
-            if (cfg.backpressureMode == VeriLoggerConfig.BackpressureMode.DROP) {
-                if (cfg.preferReliabilityForWarnError &&
-                        (ev.level == VeriLoggerConfig.Level.WARN || ev.level == VeriLoggerConfig.Level.ERROR)) {
-                    return queue.offer(ev, cfg.offerTimeoutMs, TimeUnit.MILLISECONDS);
-                }
-                return queue.offer(ev);
-            } else {
-                return queue.offer(ev, cfg.offerTimeoutMs, TimeUnit.MILLISECONDS);
-            }
+            long timeoutMs = cfg.offerTimeoutMs;
+            boolean mustWait =
+                    cfg.backpressureMode != VeriLoggerConfig.BackpressureMode.DROP ||
+                            (cfg.preferReliabilityForWarnError &&
+                                    (ev.level == VeriLoggerConfig.Level.WARN || ev.level == VeriLoggerConfig.Level.ERROR));
+
+            return mustWait
+                    ? queue.offer(ev, timeoutMs, TimeUnit.MILLISECONDS)
+                    : queue.offer(ev);
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;

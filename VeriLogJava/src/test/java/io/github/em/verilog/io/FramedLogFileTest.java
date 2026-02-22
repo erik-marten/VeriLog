@@ -1,8 +1,12 @@
 package io.github.em.verilog.io;
 
 import io.github.em.verilog.CryptoUtil;
+import io.github.em.verilog.errors.VeriLogException;
+import io.github.em.verilog.errors.VeriLogIoException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -11,6 +15,9 @@ import java.security.SecureRandom;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class FramedLogFileTest {
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void should_create_header_and_maintain_next_seq_when_reopened() throws Exception {
@@ -59,5 +66,31 @@ public class FramedLogFileTest {
             // after recovery we keep seq=1 and seq=2 -> next is 3
             assertEquals(3, f2.nextSeq(), "Should recover to seq=3 (max=2) after truncating partial last frame");
         }
+    }
+
+    @Test
+    void should_throw_io_exception_when_path_points_to_directory() throws Exception {
+        // Arrange: create a directory and pass it as "file path"
+        Path dirAsFile = tempDir.resolve("not_a_file");
+        Files.createDirectory(dirAsFile);
+
+        byte[] dek32 = new byte[32];
+        String aad = "test-aad";
+
+        // Act
+        VeriLogIoException ex = assertThrows(
+                VeriLogIoException.class,
+                () -> FramedLogFile.openOrCreate(dirAsFile, dek32, aad)
+        );
+
+        // Assert: cause preserved
+        assertNotNull(ex.getCause());
+        assertTrue(ex.getCause() instanceof IOException);
+
+        // Category
+        assertEquals(VeriLogException.Category.IO, ex.getCategory());
+
+        // Message key
+        assertEquals("io.write_failed", ex.getMessageKey());
     }
 }
