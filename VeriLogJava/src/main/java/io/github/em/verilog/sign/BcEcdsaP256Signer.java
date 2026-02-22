@@ -12,6 +12,8 @@ package io.github.em.verilog.sign;
 import io.github.em.verilog.CryptoUtil;
 import io.github.em.verilog.EcdsaSigCodec;
 
+import io.github.em.verilog.errors.VeriLogCryptoException;
+import io.github.em.verilog.errors.VeriLogFormatException;
 import org.bouncycastle.crypto.digests.SHA256Digest;
 import org.bouncycastle.crypto.params.AsymmetricKeyParameter;
 import org.bouncycastle.crypto.params.ECDomainParameters;
@@ -31,11 +33,14 @@ public final class BcEcdsaP256Signer implements LogSigner {
     private final String keyIdHex;
     private final boolean enforceLowS;
 
-    public BcEcdsaP256Signer(byte[] pkcs8PrivateKeyDer, byte[] spkiPublicKeyDer, boolean enforceLowS) {
+    public BcEcdsaP256Signer(byte[] pkcs8PrivateKeyDer, byte[] spkiPublicKeyDer, boolean enforceLowS) throws VeriLogCryptoException, VeriLogFormatException {
+        if (pkcs8PrivateKeyDer == null) throw new NullPointerException("pkcs8PrivateKeyDer");
+        if (spkiPublicKeyDer == null) throw new NullPointerException("spkiPublicKeyDer");
+
         try {
             AsymmetricKeyParameter privKey = PrivateKeyFactory.createKey(pkcs8PrivateKeyDer);
             if (!(privKey instanceof ECPrivateKeyParameters)) {
-                throw new IllegalArgumentException("Not an EC private key");
+                throw new VeriLogFormatException("format.key.not_ec_private");
             }
             this.priv = (ECPrivateKeyParameters) privKey;
 
@@ -44,8 +49,10 @@ public final class BcEcdsaP256Signer implements LogSigner {
 
             this.enforceLowS = enforceLowS;
             this.keyIdHex = CryptoUtil.toHexLower(CryptoUtil.sha256(spkiPublicKeyDer));
+        } catch (VeriLogFormatException e) {
+            throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to create signer", e);
+            throw new VeriLogCryptoException("crypto.signer_init_failed", e);
         }
     }
 
@@ -55,11 +62,10 @@ public final class BcEcdsaP256Signer implements LogSigner {
     }
 
     @Override
-    public byte[] signEntryHash(byte[] entryHash32) {
+    public byte[] signEntryHash(byte[] entryHash32) throws VeriLogCryptoException {
         if (entryHash32 == null || entryHash32.length != 32)
             throw new IllegalArgumentException("entryHash must be 32 bytes");
 
-        // Sign SHA256(entryHashBytes) with deterministic k (RFC6979)
         byte[] digest = CryptoUtil.sha256(entryHash32);
 
         ECDSASigner signer = new ECDSASigner(new HMacDSAKCalculator(new SHA256Digest()));
@@ -78,9 +84,12 @@ public final class BcEcdsaP256Signer implements LogSigner {
         try {
             DSAEncoding enc = StandardDSAEncoding.INSTANCE;
             byte[] der = enc.encode(domain.getN(), r, s);
-            return EcdsaSigCodec.derToRaw(der); // -> 64 raw bytes r||s
+            return EcdsaSigCodec.derToRaw(der);
+        } catch (VeriLogFormatException e) {
+            // This indicates something is off with own encoding/codec assumptions
+            throw new VeriLogCryptoException("crypto.sig_codec_failed", e);
         } catch (Exception e) {
-            throw new RuntimeException("Signature encoding failed", e);
+            throw new VeriLogCryptoException("crypto.sign_failed", e);
         }
     }
 }

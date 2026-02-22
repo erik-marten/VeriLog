@@ -11,6 +11,7 @@ package io.github.em.verilog.io;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.em.verilog.crypto.XChaCha20Poly1305;
+import io.github.em.verilog.errors.VeriLogIoException;
 
 import java.io.*;
 import java.nio.ByteBuffer;
@@ -26,7 +27,7 @@ public final class FramedLogFile implements Closeable {
 
     public static final byte TYPE_LOG = 1;
 
-    private static final byte[] MAGIC = new byte[]{'V','L','O','G'};
+    private static final byte[] MAGIC = new byte[]{'V', 'L', 'O', 'G'};
     private static final int FIXED_HEADER_LEN = 4 + 1 + 1 + 2; // magic + version + flags + headerLen
 
     private final Path path;
@@ -37,24 +38,29 @@ public final class FramedLogFile implements Closeable {
 
     private long nextSeq; // maintained by logger
 
-    public static FramedLogFile openOrCreate(Path path, byte[] dek32, String aad) throws IOException {
-        Files.createDirectories(path.getParent() == null ? Path.of(".") : path.getParent());
-        boolean exists = Files.exists(path);
-        FileChannel ch = FileChannel.open(path,
-                StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+    public static FramedLogFile openOrCreate(Path path, byte[] dek32, String aad) throws VeriLogIoException {
+        try {
+            Files.createDirectories(path.getParent() == null ? Path.of(".") : path.getParent());
+            boolean exists = Files.exists(path);
+            FileChannel ch = FileChannel.open(path,
+                    StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
 
-        FramedLogFile f = new FramedLogFile(path, ch, new SecureRandom(), dek32, aad);
+            FramedLogFile f = new FramedLogFile(path, ch, new SecureRandom(), dek32, aad);
 
-        if (!exists || ch.size() == 0) {
-            f.writeHeader();
-            f.nextSeq = 1;
-        } else {
-            f.validateHeaderAndRecover();
-            f.nextSeq = f.scanNextSeq(); // basic scan; can be optimized with checkpoints
+            if (!exists || ch.size() == 0) {
+                f.writeHeader();
+                f.nextSeq = 1;
+            } else {
+                f.validateHeaderAndRecover();
+                f.nextSeq = f.scanNextSeq(); // basic scan; can be optimized with checkpoints
+            }
+            ch.position(ch.size());
+            return f;
+        } catch (IOException e) {
+            throw new VeriLogIoException("io.write_failed", e);
         }
-        ch.position(ch.size());
-        return f;
     }
+
 
     private FramedLogFile(Path path, FileChannel ch, SecureRandom rng, byte[] dek32, String aad) {
         if (dek32 == null || dek32.length != 32) throw new IllegalArgumentException("DEK must be 32 bytes");
@@ -65,7 +71,9 @@ public final class FramedLogFile implements Closeable {
         this.aadPrefix = aad.getBytes(StandardCharsets.UTF_8);
     }
 
-    public long nextSeq() { return nextSeq; }
+    public long nextSeq() {
+        return nextSeq;
+    }
 
     public void appendEncryptedJson(byte type, long seq, byte[] plaintextUtf8Json) throws IOException {
         byte[] nonce = XChaCha20Poly1305.randomNonce(rng);
@@ -89,7 +97,10 @@ public final class FramedLogFile implements Closeable {
         ch.force(fsync);
     }
 
-    @Override public void close() throws IOException { ch.close(); }
+    @Override
+    public void close() throws IOException {
+        ch.close();
+    }
 
     // ---------------- header + recovery ----------------
 
@@ -108,9 +119,9 @@ public final class FramedLogFile implements Closeable {
 
         ByteBuffer buf = ByteBuffer.allocate(FIXED_HEADER_LEN + headerJson.length).order(ByteOrder.BIG_ENDIAN);
         buf.put(MAGIC);
-        buf.put((byte)1);           // version
+        buf.put((byte) 1);           // version
         buf.put(flags);
-        buf.putShort((short)headerJson.length);
+        buf.putShort((short) headerJson.length);
         buf.put(headerJson);
         buf.flip();
 
@@ -127,13 +138,14 @@ public final class FramedLogFile implements Closeable {
 
         byte[] magic = new byte[4];
         fixed.get(magic);
-        if (!(magic[0]=='V' && magic[1]=='L' && magic[2]=='O' && magic[3]=='G'))
+        if (!(magic[0] == 'V' && magic[1] == 'L' && magic[2] == 'O' && magic[3] == 'G'))
             throw new IOException("Bad magic");
 
         byte ver = fixed.get();
         if (ver != 1) throw new IOException("Unsupported version: " + ver);
 
-        /* flags */ fixed.get();
+        /* flags */
+        fixed.get();
         int headerLen = fixed.getShort() & 0xFFFF;
 
         ByteBuffer hdr = ByteBuffer.allocate(headerLen);
@@ -150,7 +162,8 @@ public final class FramedLogFile implements Closeable {
         // read headerLen to jump correctly
         ch.position(4 + 1 + 1);
         ByteBuffer hb = ByteBuffer.allocate(2).order(ByteOrder.BIG_ENDIAN);
-        readFully(hb); hb.flip();
+        readFully(hb);
+        hb.flip();
         int headerLen = hb.getShort() & 0xFFFF;
         pos = FIXED_HEADER_LEN + headerLen;
 
@@ -186,7 +199,8 @@ public final class FramedLogFile implements Closeable {
 
         ch.position(4 + 1 + 1);
         ByteBuffer hb = ByteBuffer.allocate(2).order(ByteOrder.BIG_ENDIAN);
-        readFully(hb); hb.flip();
+        readFully(hb);
+        hb.flip();
         int headerLen = hb.getShort() & 0xFFFF;
         pos = FIXED_HEADER_LEN + headerLen;
 
@@ -207,7 +221,8 @@ public final class FramedLogFile implements Closeable {
             headBuf.clear();
             readFully(headBuf);
             headBuf.flip();
-            /* type */ headBuf.get();
+            /* type */
+            headBuf.get();
             long seq = headBuf.getLong();
             if (seq > maxSeq) maxSeq = seq;
 
@@ -222,9 +237,9 @@ public final class FramedLogFile implements Closeable {
         // aad = prefix || 0x00 || uint64_be(seq) || 0x00 || type
         ByteBuffer bb = ByteBuffer.allocate(aadPrefix.length + 1 + 8 + 1 + 1).order(ByteOrder.BIG_ENDIAN);
         bb.put(aadPrefix);
-        bb.put((byte)0x00);
+        bb.put((byte) 0x00);
         bb.putLong(seq);
-        bb.put((byte)0x00);
+        bb.put((byte) 0x00);
         bb.put(type);
         return bb.array();
     }

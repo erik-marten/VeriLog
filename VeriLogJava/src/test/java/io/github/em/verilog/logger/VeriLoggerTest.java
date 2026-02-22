@@ -162,7 +162,7 @@ class VeriLoggerTest {
         @Override public String keyId() { return "test-key"; }
 
         @Override public byte[] signEntryHash(byte[] entryHash32) {
-            // produce deterministic 64 bytes (NOT a real signature; sufficient for writer path)
+            // produce deterministic 64 bytes (NOT a real signature- sufficient for writer path)
             byte[] out = new byte[64];
             for (int i = 0; i < out.length; i++) {
                 out[i] = entryHash32[i % entryHash32.length];
