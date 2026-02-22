@@ -4,6 +4,8 @@ plugins {
     id "java-library"
     id "com.gradleup.shadow" version "9.3.1"
     id "application"
+    id "jacoco"
+    id "org.sonarqube" version "7.1.0.6387"
 }
 
 group = "io.github.em"
@@ -19,6 +21,13 @@ java {
     }
 }
 
+sonar {
+    properties {
+        property "sonar.projectKey", "erik-marten_VeriLog"
+        property "sonar.organization", "erik-marten"
+    }
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
     options.release = 11
@@ -31,14 +40,38 @@ dependencies {
 
     testImplementation platform("org.junit:junit-bom:5.10.3")
     testImplementation "org.junit.jupiter:junit-jupiter"
-    testImplementation("org.mockito:mockito-core:5.21.0")
+    testImplementation "org.mockito:mockito-core:5.21.0"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
+
 application {
-    mainClass = "io.github.em.verilog.cli.VeriLogCli"}
+    mainClass = "io.github.em.verilog.cli.VeriLogCli"
+}
 
+jacoco {
+    toolVersion = "0.8.11"
+}
 
+/**
+ * Tests + JaCoCo Reports
+ */
+test {
+    useJUnitPlatform()
+    finalizedBy jacocoTestReport
+}
 
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+}
+
+/**
+ * generate LICENSE from Template
+ */
 def currentYear = Year.now().value
 def author = "Erik Marten"
 
@@ -47,37 +80,27 @@ tasks.register("generateLicense", Copy) {
     into("$buildDir/generated")
     rename { "LICENSE" }
 
-    expand(
-            year: currentYear,
-            author: author
-    )
+    expand(year: currentYear, author: author)
     filteringCharset = "UTF-8"
 }
 
 /**
- * build FatJar:
- *    build/libs/<name>-<version>-all.jar
+ * FatJar via Shadow
  */
 shadowJar {
     archiveClassifier.set("all")
     mergeServiceFiles()
-    dependsOn tasks.generateLicense
-
-    exclude("META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/DEPENDENCIES")
+    dependsOn tasks.named("generateLicense")
 
     from("$buildDir/generated/LICENSE") { into("META-INF") }
-
     from("NOTICE") { into("META-INF"); rename { "NOTICE-VERILOGGER" } }
-
     from("THIRD-PARTY-LICENSES") { into("META-INF") }
 
     manifest {
         attributes "Main-Class": application.mainClass.get()
     }
 }
+
 tasks.build {
     dependsOn tasks.shadowJar
-}
-test {
-    useJUnitPlatform()
 }
