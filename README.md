@@ -1,5 +1,7 @@
 # VeriLog 
 
+[![SonarQube Cloud](https://sonarcloud.io/images/project_badges/sonarcloud-light.svg)](https://sonarcloud.io/summary/new_code?id=erik-marten_VeriLog)
+
 **VeriLog** is a cryptographically verifiable, tamper-evident audit logging library **currently**  only for Java. A .NET equivalent plan is in breakdown.
 
 It provides:
