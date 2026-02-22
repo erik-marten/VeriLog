@@ -39,28 +39,40 @@ public final class FramedLogFile implements Closeable {
     private long nextSeq; // maintained by logger
 
     public static FramedLogFile openOrCreate(Path path, byte[] dek32, String aad) throws VeriLogIoException {
+        FileChannel ch = null;
+        FramedLogFile f = null;
+
         try {
             Files.createDirectories(path.getParent() == null ? Path.of(".") : path.getParent());
             boolean exists = Files.exists(path);
-            FileChannel ch = FileChannel.open(path,
+
+            ch = FileChannel.open(path,
                     StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
 
-            FramedLogFile f = new FramedLogFile(path, ch, new SecureRandom(), dek32, aad);
+            f = new FramedLogFile(path, ch, new SecureRandom(), dek32, aad);
 
             if (!exists || ch.size() == 0) {
                 f.writeHeader();
                 f.nextSeq = 1;
             } else {
                 f.validateHeaderAndRecover();
-                f.nextSeq = f.scanNextSeq(); // basic scan; can be optimized with checkpoints
+                f.nextSeq = f.scanNextSeq();
             }
+
             ch.position(ch.size());
             return f;
+
         } catch (IOException e) {
+            // Ensures no resource leak on exceptional path
+            try {
+                if (f != null) f.close();
+                else if (ch != null) ch.close();
+            } catch (IOException closeEx) {
+                e.addSuppressed(closeEx);
+            }
             throw new VeriLogIoException("io.write_failed", e);
         }
     }
-
 
     private FramedLogFile(Path path, FileChannel ch, SecureRandom rng, byte[] dek32, String aad) {
         if (dek32 == null || dek32.length != 32) throw new IllegalArgumentException("DEK must be 32 bytes");
