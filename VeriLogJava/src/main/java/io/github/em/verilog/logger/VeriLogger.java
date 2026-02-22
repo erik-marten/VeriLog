@@ -9,6 +9,8 @@
  */
 package io.github.em.verilog.logger;
 
+import io.github.em.verilog.errors.VeriLogIoException;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.time.Duration;
@@ -34,11 +36,11 @@ public final class VeriLogger implements Closeable {
 
     private Thread shutdownHook = null;
 
-    public static VeriLogger create(VeriLoggerConfig cfg) throws IOException {
+    public static VeriLogger create(VeriLoggerConfig cfg) throws VeriLogIoException {
         return new VeriLogger(cfg);
     }
 
-    private VeriLogger(VeriLoggerConfig cfg) throws IOException {
+    private VeriLogger(VeriLoggerConfig cfg) throws VeriLogIoException {
         cfg.validate();
         this.cfg = cfg;
 

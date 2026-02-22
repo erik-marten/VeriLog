@@ -1,5 +1,6 @@
 package io.github.em.verilog.sign;
 
+import io.github.em.verilog.errors.VeriLogFormatException;
 import org.junit.jupiter.api.Test;
 
 import java.util.Base64;
@@ -14,7 +15,7 @@ class BcPemKeysTest {
     }
 
     @Test
-    void should_read_pkcs8_private_key_der_from_pem() {
+    void should_read_pkcs8_private_key_der_from_pem() throws VeriLogFormatException {
         byte[] der = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
         String pem = pem("PRIVATE KEY", der);
 
@@ -23,7 +24,7 @@ class BcPemKeysTest {
     }
 
     @Test
-    void should_read_spki_public_key_der_from_pem() {
+    void should_read_spki_public_key_der_from_pem() throws VeriLogFormatException {
         byte[] der = new byte[] { 9, 10, 11, 12, 13 };
         String pem = pem("PUBLIC KEY", der);
 
@@ -33,7 +34,7 @@ class BcPemKeysTest {
 
     @Test
     void should_throw_exception_when_pem_is_empty() {
-        RuntimeException ex = assertThrows(RuntimeException.class, () -> BcPemKeys.readPkcs8PrivateKeyDer(""));
+        VeriLogFormatException ex = assertThrows(VeriLogFormatException.class, () -> BcPemKeys.readPkcs8PrivateKeyDer(""));
         assertNotNull(ex.getMessage());
     }
 }

@@ -25,7 +25,7 @@ public final class VerifyCommand {
      * 0 = OK
      * 2 = verification failed
      * 3 = bad arguments
-     * 4 = I/O or unexpected error
+     * 4 = I/O or unexpected errors
      */
     public int run(String[] args) {
         if (args == null || args.length == 0) {

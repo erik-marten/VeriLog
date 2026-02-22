@@ -13,6 +13,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.em.verilog.CanonicalJson;
 import io.github.em.verilog.CryptoUtil;
+import io.github.em.verilog.errors.VeriLogCryptoException;
+import io.github.em.verilog.errors.VeriLogJsonException;
 import io.github.em.verilog.sign.LogSigner;
 
 import java.nio.charset.StandardCharsets;
@@ -31,7 +33,7 @@ public final class SignedEntryFactory {
             String eventType,
             Map<String, Object> event,
             Instant tsUtc
-    ) throws Exception {
+    ) throws VeriLogCryptoException {
 
         long seq = chain.allocateSeq();
 

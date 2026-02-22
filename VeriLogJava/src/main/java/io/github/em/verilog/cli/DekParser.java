@@ -10,6 +10,7 @@
 package io.github.em.verilog.cli;
 
 import io.github.em.verilog.CryptoUtil;
+import io.github.em.verilog.errors.VeriLogFormatException;
 
 import java.util.Base64;
 import java.util.Map;
@@ -17,7 +18,7 @@ import java.util.Map;
 final class DekParser {
     private DekParser() {}
 
-    static byte[] parseDek(Map<String, String> flags) {
+    static byte[] parseDek(Map<String, String> flags) throws VeriLogFormatException {
         if (flags.containsKey("dek-hex")) {
             String hex = flags.get("dek-hex").trim();
             byte[] b = CryptoUtil.fromHex(hex);

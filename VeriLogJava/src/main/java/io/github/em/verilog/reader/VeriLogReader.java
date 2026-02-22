@@ -9,11 +9,16 @@
  */
 package io.github.em.verilog.reader;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.em.verilog.CanonicalJson;
 import io.github.em.verilog.CryptoUtil;
 import io.github.em.verilog.crypto.XChaCha20Poly1305;
+import io.github.em.verilog.errors.VeriLogCryptoException;
+import io.github.em.verilog.errors.VeriLogException;
+import io.github.em.verilog.errors.VeriLogIoException;
+import io.github.em.verilog.errors.VeriLogJsonException;
 import org.bouncycastle.crypto.InvalidCipherTextException;
 import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 
@@ -25,19 +30,33 @@ public final class VeriLogReader {
 
     private final ObjectMapper om = new ObjectMapper();
 
-    public VerifyReport verifyFile(Path vlogPath, byte[] dek32, PublicKeyResolver keyResolver) throws Exception {
+    public VerifyReport verifyFile(Path vlogPath, byte[] dek32, PublicKeyResolver keyResolver)
+            throws VeriLogException {
         return verifyFile(vlogPath, dek32, keyResolver, false);
     }
 
     public VerifyReport verifyFile(Path vlogPath, byte[] dek32, PublicKeyResolver keyResolver, boolean tolerateTrailingPartialFrame)
-            throws Exception {
+            throws VeriLogException {
+
+        if (vlogPath == null) throw new NullPointerException("vlogPath");
+        if (dek32 == null) throw new NullPointerException("dek32");
+        if (keyResolver == null) throw new NullPointerException("keyResolver");
+
         long expectedSeq = 1;
         String prevHashExpected = "0".repeat(64);
         long lastOk = 0;
 
         try (FramedFileReader r = new FramedFileReader(vlogPath)) {
-            String headerJson = new String(r.rawHeaderJsonBytes(), StandardCharsets.UTF_8);
-            JsonNode header = om.readTree(headerJson);
+
+            // Header JSON: if the header is not parsable, cannot verify => JSON exception
+            final JsonNode header;
+            try {
+                String headerJson = new String(r.rawHeaderJsonBytes(), StandardCharsets.UTF_8);
+                header = om.readTree(headerJson);
+            } catch (JsonProcessingException e) {
+                throw new VeriLogJsonException("json.invalid_header", e);
+            }
+
             String aadPrefix = header.has("aad") ? header.get("aad").asText() : "VeriLog|v1";
             byte[] aadPrefixBytes = aadPrefix.getBytes(StandardCharsets.UTF_8);
 
@@ -56,14 +75,30 @@ public final class VeriLogReader {
 
                 byte[] aad = buildAad(aadPrefixBytes, f.type, f.seq);
 
-                byte[] plaintext;
+                final byte[] plaintext;
                 try {
                     plaintext = XChaCha20Poly1305.decrypt(dek32, f.nonce24, f.ct, aad);
                 } catch (InvalidCipherTextException e) {
+                    // expected verification failure
                     return VerifyReport.fail(f.seq, "decrypt/auth failed");
                 }
 
-                JsonNode signed = om.readTree(new String(plaintext, StandardCharsets.UTF_8));
+                final JsonNode signed;
+                try {
+                    signed = om.readTree(new String(plaintext, StandardCharsets.UTF_8));
+                } catch (JsonProcessingException e) {
+                    // decrypted but not JSON: treated as verification failure (content invalid)
+                    return VerifyReport.fail(f.seq, "invalid signed JSON");
+                }
+
+                // Basic required fields presence (avoid NPE)
+                if (!signed.hasNonNull("seq")
+                        || !signed.hasNonNull("prevHash")
+                        || !signed.hasNonNull("entryHash")
+                        || !signed.hasNonNull("keyId")
+                        || !signed.hasNonNull("sig")) {
+                    return VerifyReport.fail(f.seq, "missing required fields in signed entry");
+                }
 
                 long jsonSeq = signed.get("seq").asLong();
                 if (jsonSeq != f.seq) {
@@ -75,7 +110,14 @@ public final class VeriLogReader {
                     return VerifyReport.fail(f.seq, "prevHash mismatch");
                 }
 
-                String canonicalPayload = canonicalizeWithout(signed);
+                final String canonicalPayload;
+                try {
+                    canonicalPayload = canonicalizeWithout(signed);
+                } catch (VeriLogJsonException e) {
+                    // canonicalization failure is unexpected (library/JSON issue)
+                    throw e;
+                }
+
                 byte[] entryHashBytes = CryptoUtil.sha256Utf8(canonicalPayload);
                 String computedEntryHashHex = CryptoUtil.toHexLower(entryHashBytes);
 
@@ -86,22 +128,43 @@ public final class VeriLogReader {
 
                 String keyId = signed.get("keyId").asText();
                 ECPublicKeyParameters pub = keyResolver.resolveByKeyIdHex(keyId);
-                if (pub == null) return VerifyReport.fail(f.seq, "unknown keyId: " + keyId);
+                if (pub == null) {
+                    return VerifyReport.fail(f.seq, "unknown keyId: " + keyId);
+                }
 
-                byte[] sigRaw = Base64.getDecoder().decode(signed.get("sig").asText());
-                boolean sigOk = BcEcdsaVerifier.verifyEntryHashSig(pub, entryHashBytes, sigRaw);
-                if (!sigOk) return VerifyReport.fail(f.seq, "signature invalid");
+                final byte[] sigRaw;
+                try {
+                    sigRaw = Base64.getDecoder().decode(signed.get("sig").asText());
+                } catch (IllegalArgumentException e) {
+                    return VerifyReport.fail(f.seq, "signature encoding invalid");
+                }
+
+                final boolean sigOk;
+                try {
+                    sigOk = BcEcdsaVerifier.verifyEntryHashSig(pub, entryHashBytes, sigRaw);
+                } catch (VeriLogCryptoException e) {
+                    // unexpected crypto failure
+                    throw e;
+                }
+
+                if (!sigOk) {
+                    return VerifyReport.fail(f.seq, "signature invalid");
+                }
 
                 prevHashExpected = expectedEntryHashHex;
                 expectedSeq++;
                 lastOk = f.seq;
             }
+
+        } catch (java.io.IOException e) {
+            throw new VeriLogIoException("io.read_failed", e, vlogPath.toString());
         }
 
         return VerifyReport.ok(lastOk);
     }
 
-    public DirectoryVerifyReport verifyDirectory(Path logDir, byte[] dek32, PublicKeyResolver keyResolver) throws Exception {
+    public DirectoryVerifyReport verifyDirectory(Path logDir, byte[] dek32, PublicKeyResolver keyResolver)
+            throws VeriLogException {
         return verifyDirectory(logDir, dek32, keyResolver, true);
     }
 
@@ -109,9 +172,11 @@ public final class VeriLogReader {
      * @param stopOnFirstFailure if true: stop at first failed file
      */
     public DirectoryVerifyReport verifyDirectory(Path logDir, byte[] dek32, PublicKeyResolver keyResolver, boolean stopOnFirstFailure)
-            throws Exception {
+            throws VeriLogException {
 
         if (logDir == null) throw new NullPointerException("logDir");
+        if (dek32 == null) throw new NullPointerException("dek32");
+        if (keyResolver == null) throw new NullPointerException("keyResolver");
 
         var report = new DirectoryVerifyReport();
 
@@ -122,9 +187,11 @@ public final class VeriLogReader {
                     .filter(p -> java.nio.file.Files.isRegularFile(p))
                     .filter(p -> p.getFileName().toString().endsWith(".vlog"))
                     .forEach(files::add);
+        } catch (java.io.IOException e) {
+            throw new VeriLogIoException("io.read_failed", e, logDir.toString());
         }
 
-        // Sort: prefer name sort (works well with your prefix-timestamp naming), fallback to lastModified
+        // Sort: name first, then lastModified
         files.sort((a, b) -> {
             int c = a.getFileName().toString().compareTo(b.getFileName().toString());
             if (c != 0) return c;
@@ -132,18 +199,19 @@ public final class VeriLogReader {
                 long ta = java.nio.file.Files.getLastModifiedTime(a).toMillis();
                 long tb = java.nio.file.Files.getLastModifiedTime(b).toMillis();
                 return Long.compare(ta, tb);
-            } catch (Exception e) {
+            } catch (java.io.IOException ignored) {
                 return 0;
             }
         });
 
+        // current.vlog last
         files.sort((a, b) -> {
             String an = a.getFileName().toString();
             String bn = b.getFileName().toString();
             boolean ac = an.equals("current.vlog");
             boolean bc = bn.equals("current.vlog");
             if (ac == bc) return 0;
-            return ac ? 1 : -1; // current last
+            return ac ? 1 : -1;
         });
 
         for (var f : files) {
@@ -172,12 +240,20 @@ public final class VeriLogReader {
         return bb.array();
     }
 
-    private String canonicalizeWithout(JsonNode obj) throws Exception {
+    private String canonicalizeWithout(JsonNode obj) throws VeriLogJsonException {
         // Create a mutable copy as ObjectNode, remove fields, then canonicalize via CanonicalJson
-        var copy = obj.deepCopy();
-        if (copy.isObject()) {
-            for (String r : new String[]{"entryHash", "sig"}) ((com.fasterxml.jackson.databind.node.ObjectNode) copy).remove(r);
+        try {
+            var copy = obj.deepCopy();
+            if (copy.isObject()) {
+                for (String r : new String[]{"entryHash", "sig"}) {
+                    ((com.fasterxml.jackson.databind.node.ObjectNode) copy).remove(r);
+                }
+            }
+            return CanonicalJson.canonicalize(copy);
+        } catch (RuntimeException e) {
+            throw new VeriLogJsonException("json.canonicalize_failed", e);
+        } catch (VeriLogCryptoException e) {
+            throw new RuntimeException(e);
         }
-        return CanonicalJson.canonicalize(copy);
     }
 }

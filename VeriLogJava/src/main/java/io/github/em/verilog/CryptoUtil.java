@@ -9,23 +9,27 @@
  */
 package io.github.em.verilog;
 
+import io.github.em.verilog.errors.VeriLogCryptoException;
+import io.github.em.verilog.errors.VeriLogFormatException;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 public final class CryptoUtil {
-    private CryptoUtil() {
-    }
+    private CryptoUtil() {}
 
-    public static byte[] sha256(byte[] data) {
+    public static byte[] sha256(byte[] data) throws VeriLogCryptoException {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             return md.digest(data);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        } catch (NoSuchAlgorithmException e) {
+            // should never happen on a standard JVM
+            throw new VeriLogCryptoException("crypto.sha256_unavailable", e);
         }
     }
 
-    public static byte[] sha256Utf8(String s) {
+    public static byte[] sha256Utf8(String s) throws VeriLogCryptoException {
         return sha256(s.getBytes(StandardCharsets.UTF_8));
     }
 
@@ -35,12 +39,12 @@ public final class CryptoUtil {
         return sb.toString();
     }
 
-    public static byte[] fromHex(String hex) {
+    public static byte[] fromHex(String hex) throws VeriLogFormatException {
         if (hex == null) throw new NullPointerException("hex");
         String s = hex.trim();
 
         if ((s.length() % 2) != 0) {
-            throw new IllegalArgumentException("Hex string must have even length");
+            throw new VeriLogFormatException("format.hex.odd_length", s.length());
         }
 
         int len = s.length() / 2;
@@ -55,10 +59,10 @@ public final class CryptoUtil {
         return out;
     }
 
-    private static int hexCharToInt(char c) {
+    private static int hexCharToInt(char c) throws VeriLogFormatException {
         if (c >= '0' && c <= '9') return c - '0';
         if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
         if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
-        throw new IllegalArgumentException("Invalid hex character: " + c);
+        throw new VeriLogFormatException("format.hex.invalid_char", String.valueOf(c));
     }
 }

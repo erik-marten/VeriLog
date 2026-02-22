@@ -9,10 +9,12 @@
  */
 package io.github.em.verilog.sign;
 
+import io.github.em.verilog.errors.VeriLogCryptoException;
+
 public interface LogSigner {
     /** stable identifier for the public key (e.g. hex(sha256(SPKI_DER))) */
     String keyId();
 
     /** returns raw signature r||s (64 bytes) */
-    byte[] signEntryHash(byte[] entryHash32);
+    byte[] signEntryHash(byte[] entryHash32) throws VeriLogCryptoException;
 }
