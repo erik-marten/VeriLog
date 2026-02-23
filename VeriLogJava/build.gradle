@@ -74,7 +74,19 @@ jacocoTestReport {
         csv.required = false
     }
 }
+jacocoTestCoverageVerification {
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.80
+            }
+        }
+    }
+}
 
+check.dependsOn jacocoTestCoverageVerification
 /**
  * generate LICENSE from Template
  */
