@@ -63,15 +63,24 @@ public final class FramedLogFile implements Closeable {
             return f;
 
         } catch (IOException e) {
-            // ensures no resource leak
             try {
                 if (f != null) {
-                    f.close(); // this closes ch internally
+                    f.close();
                 }
             } catch (IOException closeEx) {
                 e.addSuppressed(closeEx);
             }
             throw new VeriLogIoException("io.write_failed", e);
+        }
+    }
+
+    static void closeOnInitFailure(FramedLogFile f, IOException e) {
+        try {
+            if (f != null) {
+                f.close(); // closes channel internally
+            }
+        } catch (IOException closeEx) {
+            e.addSuppressed(closeEx);
         }
     }
 
