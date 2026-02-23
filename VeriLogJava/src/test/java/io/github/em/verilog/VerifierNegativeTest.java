@@ -40,7 +40,7 @@ public class VerifierNegativeTest {
         signed.put("sig", java.util.Base64.getEncoder().encodeToString(raw));
 
         var rep = Verifier.verifySingle(signed, pub);
-        assertFalse(rep.ok);
+        assertFalse(rep.valid);
     }
 
     @Test
@@ -73,7 +73,7 @@ public class VerifierNegativeTest {
 
         Verifier.VerifyReport rep = Verifier.verifySingle(entry, kp.getPublic());
 
-        assertFalse(rep.ok);
+        assertFalse(rep.valid);
         assertEquals(-1, rep.seq);
         assertEquals("missing required fields", rep.reason);
     }
@@ -106,7 +106,7 @@ public class VerifierNegativeTest {
 
         Verifier.VerifyReport rep = Verifier.verifySingle(entry, kp.getPublic());
 
-        assertFalse(rep.ok);
+        assertFalse(rep.valid);
         assertEquals(1, rep.seq);
         assertEquals("signature encoding invalid", rep.reason);
     }
@@ -125,7 +125,7 @@ public class VerifierNegativeTest {
 
         Verifier.VerifyReport rep = Verifier.verifySingle(entry, kp.getPublic());
 
-        assertFalse(rep.ok);
+        assertFalse(rep.valid);
         assertEquals(1, rep.seq);
         assertEquals("entryHash mismatch", rep.reason);
     }
@@ -154,7 +154,7 @@ public class VerifierNegativeTest {
 
         Verifier.VerifyReport rep = Verifier.verifyChain(java.util.List.of(e1).iterator(), kp.getPublic());
 
-        assertFalse(rep.ok);
+        assertFalse(rep.valid);
         assertEquals(2, rep.seq);
         assertTrue(rep.reason.startsWith("seq not contiguous"));
     }
