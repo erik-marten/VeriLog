@@ -13,6 +13,7 @@ import java.nio.file.StandardOpenOption;
 import java.security.SecureRandom;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 public class FramedLogFileTest {
 
@@ -92,5 +93,37 @@ public class FramedLogFileTest {
 
         // Message key
         assertEquals("io.write_failed", ex.getMessageKey());
+    }
+
+    @Test
+    void should_close_f_when_non_null() throws Exception {
+        FramedLogFile f = mock(FramedLogFile.class);
+        IOException e = new IOException("init failed");
+
+        FramedLogFile.closeOnInitFailure(f, e);
+
+        verify(f).close();
+        assertEquals(0, e.getSuppressed().length, "no suppressed exception expected when close succeeds");
+    }
+
+    @Test
+    void should_add_suppressed_when_close_throws() throws Exception {
+        FramedLogFile f = mock(FramedLogFile.class);
+        IOException init = new IOException("init failed");
+        IOException closeEx = new IOException("close failed");
+
+        doThrow(closeEx).when(f).close();
+
+        FramedLogFile.closeOnInitFailure(f, init);
+
+        assertEquals(1, init.getSuppressed().length);
+        assertSame(closeEx, init.getSuppressed()[0], "close exception should be suppressed on init exception");
+    }
+
+    @Test
+    void should_do_nothing_when_f_is_null() {
+        IOException init = new IOException("init failed");
+        FramedLogFile.closeOnInitFailure(null, init);
+        assertEquals(0, init.getSuppressed().length);
     }
 }
