@@ -13,7 +13,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.em.verilog.errors.VeriLogCryptoException;
 import io.github.em.verilog.errors.VeriLogFormatException;
-import io.github.em.verilog.errors.VeriLogJsonException;
 
 import java.security.PublicKey;
 import java.security.Signature;
@@ -26,17 +25,17 @@ public final class Verifier {
     }
 
     public static final class VerifyReport {
-        public final boolean ok;
+        public final boolean valid;
         public final long seq;
         public final String reason;
 
-        private VerifyReport(boolean ok, long seq, String reason) {
-            this.ok = ok;
+        private VerifyReport(boolean valid, long seq, String reason) {
+            this.valid = valid;
             this.seq = seq;
             this.reason = reason;
         }
 
-        public static VerifyReport ok() {
+        public static VerifyReport success() {
             return new VerifyReport(true, -1, null);
         }
 
@@ -99,7 +98,7 @@ public final class Verifier {
                 verifier.initVerify(pub);
                 verifier.update(entryHashBytes);
                 boolean ok = verifier.verify(sigDer);
-                return ok ? VerifyReport.ok() : VerifyReport.fail(seq, "signature invalid");
+                return ok ? VerifyReport.success() : VerifyReport.fail(seq, "signature invalid");
             } catch (Exception e) {
                 throw new VeriLogCryptoException("crypto.signature_verify_failed", e);
             }
@@ -111,7 +110,7 @@ public final class Verifier {
 
     // optional helper: verify chain (seq contiguous + prevHash)
     public static VerifyReport verifyChain(Iterator<? extends JsonNode> entries, PublicKey pub)
-            throws VeriLogJsonException, VeriLogCryptoException {
+            throws VeriLogCryptoException {
 
         if (entries == null) throw new NullPointerException("entries");
         if (pub == null) throw new NullPointerException("pub");
@@ -133,7 +132,7 @@ public final class Verifier {
             }
 
             VerifyReport rep = verifySingle(e, pub);
-            if (!rep.ok) return rep;
+            if (!rep.valid) return rep;
 
             String prevHash = e.get("prevHash").textValue();
 
@@ -151,6 +150,6 @@ public final class Verifier {
             prevEntryHash = e.get("entryHash").textValue();
             expectedSeq++;
         }
-        return VerifyReport.ok();
+        return VerifyReport.success();
     }
 }

@@ -35,6 +35,6 @@ public class GoldenVectorTest {
         signed.put("sig", root.get("signatureBase64_rawRconcatS").textValue());
 
         var rep = Verifier.verifySingle(signed, pub);
-        assertTrue(rep.ok, rep.reason);
+        assertTrue(rep.valid, rep.reason);
     }
 }
