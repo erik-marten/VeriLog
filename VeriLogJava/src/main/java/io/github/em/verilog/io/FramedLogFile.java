@@ -63,10 +63,11 @@ public final class FramedLogFile implements Closeable {
             return f;
 
         } catch (IOException e) {
-            // Ensures no resource leak on exceptional path
+            // ensures no resource leak
             try {
-                if (f != null) f.close();
-                else if (ch != null) ch.close();
+                if (f != null) {
+                    f.close(); // this closes ch internally
+                }
             } catch (IOException closeEx) {
                 e.addSuppressed(closeEx);
             }
