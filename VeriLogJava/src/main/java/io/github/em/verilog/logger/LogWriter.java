@@ -193,18 +193,14 @@ final class LogWriter implements Runnable {
             file.flush(true);
             file.close();
 
-            Path cur = currentPath();
+            Path current = currentPath();
             Path rotated = rotationPolicy.rotatedPath(cfg.logDir);
 
-            try {
-                Files.move(cur, rotated, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException e) {
-                Files.move(cur, rotated, StandardCopyOption.REPLACE_EXISTING);
-            }
+            moveAtomicOrReplace(current, rotated);
 
-            this.file = FramedLogFile.openOrCreate(cur, cfg.encryptionKey32, cfg.aadPrefix);
+            this.file = FramedLogFile.openOrCreate(current, cfg.encryptionKey32, cfg.aadPrefix);
             this.nextSeq = file.nextSeq();
-            this.bytesWrittenCurrent = Files.size(cur);
+            this.bytesWrittenCurrent = Files.size(current);
             this.sinceFlush = 0;
             this.lastFlushMs = System.currentTimeMillis();
 
@@ -215,12 +211,7 @@ final class LogWriter implements Runnable {
 
     private void rotateExistingOnStartup(Path current) throws IOException {
         Path rotated = rotationPolicy.rotatedPath(cfg.logDir);
-
-        try {
-            Files.move(current, rotated, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(current, rotated, StandardCopyOption.REPLACE_EXISTING);
-        }
+        moveAtomicOrReplace(current,rotated);
     }
 
     private static void ensureFileExistsWith0600IfPossible(Path file) throws IOException {
@@ -247,5 +238,13 @@ final class LogWriter implements Runnable {
 
     private long estimateFrameBytes(int plaintextLen) {
         return 4L + 1 + 8 + 24 + plaintextLen + 16;
+    }
+
+    static void moveAtomicOrReplace(Path src, Path dst) throws IOException {
+        try {
+            Files.move(src, dst, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(src, dst, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 }
