@@ -87,7 +87,6 @@ public final class CanonicalJson {
             writeNode(arr.get(i), sb);
         }
         sb.append(']');
-        return;
     }
 
     private static void writeObject(JsonNode node, StringBuilder sb) {
