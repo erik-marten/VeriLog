@@ -10,17 +10,17 @@
 package io.github.em.verilog.reader;
 
 public final class VerifyReport {
-    public final boolean ok;
+    public final boolean valid;
     public final long seq;       // seq where it failed (or last verified)
-    public final String reason;  // null if ok
+    public final String reason;  // null if success
 
-    private VerifyReport(boolean ok, long seq, String reason) {
-        this.ok = ok;
+    private VerifyReport(boolean valid, long seq, String reason) {
+        this.valid = valid;
         this.seq = seq;
         this.reason = reason;
     }
 
-    public static VerifyReport ok(long lastSeq) {
+    public static VerifyReport success(long lastSeq) {
         return new VerifyReport(true, lastSeq, null);
     }
 

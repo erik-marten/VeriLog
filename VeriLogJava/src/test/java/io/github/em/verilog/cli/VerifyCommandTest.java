@@ -283,7 +283,7 @@ final class VerifyCommandTest {
         Class<?> cls = Class.forName("io.github.em.verilog.reader.VerifyReport");
         try {
             if (ok) {
-                Method m = cls.getDeclaredMethod("ok");
+                Method m = cls.getDeclaredMethod("success");
                 m.setAccessible(true);
                 return m.invoke(null);
             } else {

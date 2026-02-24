@@ -53,7 +53,7 @@ public class VeriLogReaderTest {
 
         VerifyReport report = reader.verifyFile(file, dek32, resolver);
 
-        assertFalse(report.ok);
+        assertFalse(report.valid);
         assertEquals("decrypt/auth failed", report.reason);
     }
 
@@ -64,7 +64,7 @@ public class VeriLogReaderTest {
 
         VerifyReport report = reader.verifyFile(file, dek32, resolver);
 
-        assertFalse(report.ok);
+        assertFalse(report.valid);
         assertTrue(report.reason.startsWith("unknown keyId"));
     }
 
@@ -78,7 +78,7 @@ public class VeriLogReaderTest {
                 tm.keyResolver
         );
 
-        assertFalse(report.ok);
+        assertFalse(report.valid);
         assertEquals("signature invalid", report.reason);
     }
 
