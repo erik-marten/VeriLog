@@ -89,51 +89,80 @@ final class LogWriter implements Runnable {
     @Override
     public void run() {
         try {
-            while (true) {
-                LogEvent ev = null;
-                try {
-                    ev = queue.poll(50, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException ignored) {
-                    // shutdown is handled via 'closed' + POISON
-                }
+            mainLoop();
+            drainRemaining();
+            flushFinal();
+        } catch (Throwable t) {
+            onFault(t);
+        } finally {
+            closeAndSignalTermination();
+        }
+    }
 
-                if (ev != null) {
-                    if (ev == LogEvent.POISON) {
-                        break; // Stop-Signal
-                    }
-                    writeOne(ev);
-                }
+    private void mainLoop() throws VeriLogIoException, IOException {
+        while (true) {
+            LogEvent ev = pollEvent();
 
-                maybeFlush();
+            if (ev == LogEvent.POISON) break;
 
-                if (bytesWrittenCurrent >= rotationPolicy.rotateBytes) rotate();
-
-                // when close() and queue empty terminate cleanly
-                if (closed.get() && queue.isEmpty()) break;
-            }
-
-            // after stop drain rest of events
-            LogEvent ev;
-            while ((ev = queue.poll()) != null) {
-                if (ev == LogEvent.POISON) continue;
+            if (ev != null) {
                 writeOne(ev);
             }
 
-            file.flush(true);
+            afterTick();
 
-        } catch (Throwable t) {
-            faulted.set(true);
-            try {
-                file.flush(true);
-            } catch (Exception ignored) {
-            }
-        } finally {
-            try {
-                if (file != null) file.close();
-            } catch (Exception ignored) {
-            }
-            terminated.countDown();
+            if (shouldTerminate()) break;
         }
+    }
+
+    private LogEvent pollEvent() {
+        try {
+            return queue.poll(50, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ignored) {
+            // shutdown handled via 'closed' + POISON
+            return null;
+        }
+    }
+
+    private void afterTick() throws IOException, VeriLogIoException {
+        maybeFlush();
+        if (shouldRotate()) rotate();
+    }
+
+    private boolean shouldRotate() {
+        return bytesWrittenCurrent >= rotationPolicy.rotateBytes;
+    }
+
+    private boolean shouldTerminate() {
+        return closed.get() && queue.isEmpty();
+    }
+
+    private void drainRemaining() throws IOException {
+        LogEvent ev;
+        while ((ev = queue.poll()) != null) {
+            if (ev == LogEvent.POISON) continue;
+            writeOne(ev);
+        }
+    }
+
+    private void flushFinal() throws IOException {
+        file.flush(true);
+    }
+
+    private void onFault(Throwable t) {
+        faulted.set(true);
+        try {
+            file.flush(true);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void closeAndSignalTermination() {
+        try {
+            if (file != null) file.close();
+        } catch (Exception ignored) {
+        }
+        terminated.countDown();
     }
 
     void flushAndCloseBestEffort() {
@@ -211,7 +240,7 @@ final class LogWriter implements Runnable {
 
     private void rotateExistingOnStartup(Path current) throws IOException {
         Path rotated = rotationPolicy.rotatedPath(cfg.logDir);
-        moveAtomicOrReplace(current,rotated);
+        moveAtomicOrReplace(current, rotated);
     }
 
     private static void ensureFileExistsWith0600IfPossible(Path file) throws IOException {
