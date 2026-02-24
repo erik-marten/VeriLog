@@ -14,7 +14,7 @@ public class VeriLogException extends Exception {
 
     private final Category category;
     private final String messageKey;
-    private final Object[] messageArgs;
+    private final transient Object[] messageArgs;
 
     public VeriLogException(Category category, String messageKey, Object... messageArgs) {
         super(ErrorMessages.format(messageKey, messageArgs));
