@@ -114,41 +114,66 @@ public final class Verifier {
 
         Objects.requireNonNull(entries, "entries");
         Objects.requireNonNull(pub, "pub");
+
         String prevEntryHash = null;
         long expectedSeq = 1;
 
         while (entries.hasNext()) {
             JsonNode e = entries.next();
 
-            if (!e.hasNonNull("seq") || !e.hasNonNull("prevHash")) {
-                return VerifyReport.fail(-1, "missing required fields");
-            }
+            VerifyReport rep;
+
+            rep = validateRequiredFields(e);
+            if (!rep.valid) return rep;
 
             long seq = e.get("seq").longValue();
-            if (seq != expectedSeq) {
-                return VerifyReport.fail(seq,
-                        "seq not contiguous (expected " + expectedSeq + ")");
-            }
 
-            VerifyReport rep = verifySingle(e, pub);
+            rep = validateSeqContiguous(seq, expectedSeq);
+            if (!rep.valid) return rep;
+
+            rep = verifySingle(e, pub);
             if (!rep.valid) return rep;
 
             String prevHash = e.get("prevHash").textValue();
-
-            if (seq == 1) {
-                if (!prevHash.equals("0".repeat(64))) {
-                    return VerifyReport.fail(seq,
-                            "prevHash must be zeros for seq=1");
-                }
-            } else {
-                if (!prevHash.equals(prevEntryHash)) {
-                    return VerifyReport.fail(seq, "prevHash mismatch");
-                }
-            }
+            rep = validatePrevHash(seq, prevHash, prevEntryHash);
+            if (!rep.valid) return rep;
 
             prevEntryHash = e.get(ENTRY_HASH).textValue();
             expectedSeq++;
         }
+
         return VerifyReport.success();
+    }
+
+    private static VerifyReport validateRequiredFields(JsonNode e) {
+        if (!e.hasNonNull("seq") || !e.hasNonNull("prevHash")) {
+            return VerifyReport.fail(-1, "missing required fields");
+        }
+        return VerifyReport.success();
+    }
+
+    private static VerifyReport validateSeqContiguous(long seq, long expectedSeq) {
+        if (seq != expectedSeq) {
+            return VerifyReport.fail(seq, "seq not contiguous (expected " + expectedSeq + ")");
+        }
+        return VerifyReport.success();
+    }
+
+    private static VerifyReport validatePrevHash(long seq, String prevHash, String prevEntryHash) {
+        if (seq == 1) {
+            if (!prevHash.equals(zeroHash64())) {
+                return VerifyReport.fail(seq, "prevHash must be zeros for seq=1");
+            }
+            return VerifyReport.success();
+        }
+
+        if (!prevHash.equals(prevEntryHash)) {
+            return VerifyReport.fail(seq, "prevHash mismatch");
+        }
+        return VerifyReport.success();
+    }
+
+    private static String zeroHash64() {
+        return "0".repeat(64);
     }
 }
