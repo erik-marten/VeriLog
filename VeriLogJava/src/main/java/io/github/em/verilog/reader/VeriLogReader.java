@@ -29,7 +29,8 @@ import java.util.Base64;
 public final class VeriLogReader {
 
     private final ObjectMapper om = new ObjectMapper();
-
+    private static final String ENTRY_HASH = "entryHash";
+    private static final String CURRENT_VLOG = "current.vlog";
     public VerifyReport verifyFile(Path vlogPath, byte[] dek32, PublicKeyResolver keyResolver)
             throws VeriLogException {
         return verifyFile(vlogPath, dek32, keyResolver, false);
@@ -44,7 +45,7 @@ public final class VeriLogReader {
 
         long expectedSeq = 1;
         String prevHashExpected = "0".repeat(64);
-        long lastSuccess = 0;
+        long lastOk = 0;
 
         try (FramedFileReader r = new FramedFileReader(vlogPath)) {
 
@@ -94,7 +95,7 @@ public final class VeriLogReader {
                 // Basic required fields presence (avoid NPE)
                 if (!signed.hasNonNull("seq")
                         || !signed.hasNonNull("prevHash")
-                        || !signed.hasNonNull("entryHash")
+                        || !signed.hasNonNull(ENTRY_HASH)
                         || !signed.hasNonNull("keyId")
                         || !signed.hasNonNull("sig")) {
                     return VerifyReport.fail(f.seq, "missing required fields in signed entry");
@@ -121,7 +122,7 @@ public final class VeriLogReader {
                 byte[] entryHashBytes = CryptoUtil.sha256Utf8(canonicalPayload);
                 String computedEntryHashHex = CryptoUtil.toHexLower(entryHashBytes);
 
-                String expectedEntryHashHex = signed.get("entryHash").asText();
+                String expectedEntryHashHex = signed.get(ENTRY_HASH).asText();
                 if (!computedEntryHashHex.equals(expectedEntryHashHex)) {
                     return VerifyReport.fail(f.seq, "entryHash mismatch");
                 }
@@ -153,14 +154,14 @@ public final class VeriLogReader {
 
                 prevHashExpected = expectedEntryHashHex;
                 expectedSeq++;
-                lastSuccess = f.seq;
+                lastOk = f.seq;
             }
 
         } catch (java.io.IOException e) {
             throw new VeriLogIoException("io.read_failed", e, vlogPath.toString());
         }
 
-        return VerifyReport.success(lastSuccess);
+        return VerifyReport.success(lastOk);
     }
 
     public DirectoryVerifyReport verifyDirectory(Path logDir, byte[] dek32, PublicKeyResolver keyResolver)
@@ -208,14 +209,14 @@ public final class VeriLogReader {
         files.sort((a, b) -> {
             String an = a.getFileName().toString();
             String bn = b.getFileName().toString();
-            boolean ac = an.equals("current.vlog");
-            boolean bc = bn.equals("current.vlog");
+            boolean ac = an.equals(CURRENT_VLOG);
+            boolean bc = bn.equals(CURRENT_VLOG);
             if (ac == bc) return 0;
             return ac ? 1 : -1;
         });
 
         for (var f : files) {
-            boolean tolerate = f.getFileName().toString().equals("current.vlog");
+            boolean tolerate = f.getFileName().toString().equals(CURRENT_VLOG);
             VerifyReport r = verifyFile(f, dek32, keyResolver, tolerate);
 
             report.add(new DirectoryVerifyReport.FileResult(f, r.valid, r.seq, r.reason));
@@ -245,7 +246,7 @@ public final class VeriLogReader {
         try {
             var copy = obj.deepCopy();
             if (copy.isObject()) {
-                for (String r : new String[]{"entryHash", "sig"}) {
+                for (String r : new String[]{ENTRY_HASH, "sig"}) {
                     ((com.fasterxml.jackson.databind.node.ObjectNode) copy).remove(r);
                 }
             }

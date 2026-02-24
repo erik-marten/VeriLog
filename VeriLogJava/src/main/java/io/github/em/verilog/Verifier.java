@@ -23,7 +23,7 @@ import java.util.Objects;
 public final class Verifier {
     private Verifier() {
     }
-
+    private static final String ENTRY_HASH = "entryHash";
     public static final class VerifyReport {
         public final boolean valid;
         public final long seq;
@@ -52,7 +52,7 @@ public final class Verifier {
 
         // Required fields check (avoid NPE)
         if (!signedEntry.hasNonNull("seq")
-                || !signedEntry.hasNonNull("entryHash")
+                || !signedEntry.hasNonNull(ENTRY_HASH)
                 || !signedEntry.hasNonNull("sig")) {
             return VerifyReport.fail(-1, "missing required fields");
         }
@@ -61,14 +61,14 @@ public final class Verifier {
 
         try {
             ObjectNode payload = signedEntry.deepCopy();
-            payload.remove("entryHash");
+            payload.remove(ENTRY_HASH);
             payload.remove("sig");
 
             String canonicalPayload = CanonicalJson.canonicalize(payload);
             byte[] entryHashBytes = CryptoUtil.sha256Utf8(canonicalPayload);
             String computedHex = CryptoUtil.toHexLower(entryHashBytes);
 
-            String expectedHex = signedEntry.get("entryHash").textValue();
+            String expectedHex = signedEntry.get(ENTRY_HASH).textValue();
             if (!computedHex.equals(expectedHex)) {
                 return VerifyReport.fail(seq, "entryHash mismatch");
             }
@@ -112,8 +112,8 @@ public final class Verifier {
     public static VerifyReport verifyChain(Iterator<? extends JsonNode> entries, PublicKey pub)
             throws VeriLogCryptoException {
 
-        if (entries == null) throw new NullPointerException("entries");
-        if (pub == null) throw new NullPointerException("pub");
+        Objects.requireNonNull(entries, "entries");
+        Objects.requireNonNull(pub, "pub");
 
         String prevEntryHash = null;
         long expectedSeq = 1;
@@ -121,35 +121,59 @@ public final class Verifier {
         while (entries.hasNext()) {
             JsonNode e = entries.next();
 
-            if (!e.hasNonNull("seq") || !e.hasNonNull("prevHash")) {
-                return VerifyReport.fail(-1, "missing required fields");
-            }
+            VerifyReport rep;
+
+            rep = validateRequiredFields(e);
+            if (!rep.valid) return rep;
 
             long seq = e.get("seq").longValue();
-            if (seq != expectedSeq) {
-                return VerifyReport.fail(seq,
-                        "seq not contiguous (expected " + expectedSeq + ")");
-            }
 
-            VerifyReport rep = verifySingle(e, pub);
+            rep = validateSeqContiguous(seq, expectedSeq);
+            if (!rep.valid) return rep;
+
+            rep = verifySingle(e, pub);
             if (!rep.valid) return rep;
 
             String prevHash = e.get("prevHash").textValue();
+            rep = validatePrevHash(seq, prevHash, prevEntryHash);
+            if (!rep.valid) return rep;
 
-            if (seq == 1) {
-                if (!prevHash.equals("0".repeat(64))) {
-                    return VerifyReport.fail(seq,
-                            "prevHash must be zeros for seq=1");
-                }
-            } else {
-                if (!prevHash.equals(prevEntryHash)) {
-                    return VerifyReport.fail(seq, "prevHash mismatch");
-                }
-            }
-
-            prevEntryHash = e.get("entryHash").textValue();
+            prevEntryHash = e.get(ENTRY_HASH).textValue();
             expectedSeq++;
         }
+
         return VerifyReport.success();
+    }
+
+    private static VerifyReport validateRequiredFields(JsonNode e) {
+        if (!e.hasNonNull("seq") || !e.hasNonNull("prevHash")) {
+            return VerifyReport.fail(-1, "missing required fields");
+        }
+        return VerifyReport.success();
+    }
+
+    private static VerifyReport validateSeqContiguous(long seq, long expectedSeq) {
+        if (seq != expectedSeq) {
+            return VerifyReport.fail(seq, "seq not contiguous (expected " + expectedSeq + ")");
+        }
+        return VerifyReport.success();
+    }
+
+    private static VerifyReport validatePrevHash(long seq, String prevHash, String prevEntryHash) {
+        if (seq == 1) {
+            if (!prevHash.equals(zeroHash64())) {
+                return VerifyReport.fail(seq, "prevHash must be zeros for seq=1");
+            }
+            return VerifyReport.success();
+        }
+
+        if (!prevHash.equals(prevEntryHash)) {
+            return VerifyReport.fail(seq, "prevHash mismatch");
+        }
+        return VerifyReport.success();
+    }
+
+    private static String zeroHash64() {
+        return "0".repeat(64);
     }
 }

@@ -21,14 +21,15 @@ import java.util.Comparator;
 import java.util.List;
 
 public final class CanonicalJson {
-    private CanonicalJson() {}
+    private CanonicalJson() {
+    }
 
     public static String canonicalize(String json) throws VeriLogJsonException, VeriLogCryptoException {
         ObjectMapper mapper = new ObjectMapper();
         JsonNode node = null;
         try {
             node = mapper.readTree(json);
-        }catch (com.fasterxml.jackson.core.JsonProcessingException e){
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new VeriLogJsonException(
                     "json.canonicalize_failed",
                     e,
@@ -46,64 +47,105 @@ public final class CanonicalJson {
     }
 
     private static void writeNode(JsonNode node, StringBuilder sb) {
-        if (node.isObject()) {
-            sb.append('{');
-            ObjectNode obj = (ObjectNode) node;
-
-            List<String> names = new ArrayList<>();
-            obj.fieldNames().forEachRemaining(names::add);
-            names.sort(Comparator.naturalOrder()); // lexicographic (Unicode code point order)
-
-            for (int i = 0; i < names.size(); i++) {
-                if (i > 0) sb.append(',');
-                writeString(names.get(i), sb);
-                sb.append(':');
-                writeNode(obj.get(names.get(i)), sb);
-            }
-            sb.append('}');
-            return;
+        switch (node.getNodeType()) {
+            case OBJECT:
+                writeObject(node, sb);
+                break;
+            case NUMBER:
+                writeNumber(node, sb);
+                break;
+            case ARRAY:
+                writeArray(node, sb);
+                break;
+            case STRING:
+                writeString(node.textValue(), sb);
+                break;
+            case BOOLEAN:
+                writeBoolean(node, sb);
+                break;
+            case NULL:
+                writeNull(sb);
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported JSON type: " + node.getNodeType());
         }
+    }
 
-        if (node.isArray()) {
-            sb.append('[');
-            ArrayNode arr = (ArrayNode) node;
-            for (int i = 0; i < arr.size(); i++) {
-                if (i > 0) sb.append(',');
-                writeNode(arr.get(i), sb);
-            }
-            sb.append(']');
-            return;
+    private static void writeBoolean(JsonNode node, StringBuilder sb) {
+        sb.append(node.booleanValue() ? "true" : "false");
+    }
+
+    private static void writeNull(StringBuilder sb) {
+        sb.append("null");
+    }
+
+    private static void writeArray(JsonNode node, StringBuilder sb) {
+        sb.append('[');
+        ArrayNode arr = (ArrayNode) node;
+        for (int i = 0; i < arr.size(); i++) {
+            if (i > 0) sb.append(',');
+            writeNode(arr.get(i), sb);
         }
+        sb.append(']');
+    }
 
-        if (node.isTextual()) { writeString(node.textValue(), sb); return; }
+    private static void writeObject(JsonNode node, StringBuilder sb) {
+        sb.append('{');
+        ObjectNode obj = (ObjectNode) node;
 
+        List<String> names = new ArrayList<>();
+        obj.fieldNames().forEachRemaining(names::add);
+        names.sort(Comparator.naturalOrder()); // lexicographic (Unicode code point order)
+
+        for (int i = 0; i < names.size(); i++) {
+            if (i > 0) sb.append(',');
+            writeString(names.get(i), sb);
+            sb.append(':');
+            writeNode(obj.get(names.get(i)), sb);
+        }
+        sb.append('}');
+    }
+
+    private static void writeNumber(JsonNode node, StringBuilder sb) {
         if (node.isIntegralNumber()) {
             sb.append(node.longValue());
             return;
         }
 
         if (node.isFloatingPointNumber() || node.isBigDecimal()) {
-            throw new IllegalArgumentException("Floating point numbers are not allowed in Canonical JSON.");
+            throw new IllegalArgumentException(
+                    "Floating point numbers are not allowed in Canonical JSON."
+            );
         }
-
-        if (node.isBoolean()) { sb.append(node.booleanValue() ? "true" : "false"); return; }
-        if (node.isNull()) { sb.append("null"); return; }
-
         throw new IllegalArgumentException("Unsupported JSON type: " + node.getNodeType());
     }
 
-    private static void writeString(String s, StringBuilder sb) {
+    private static void writeString(String value, StringBuilder sb) {
         sb.append('"');
-        for (int i = 0; i < s.length(); i++) {
-            char ch = s.charAt(i);
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
             switch (ch) {
-                case '"': sb.append("\\\""); break;
-                case '\\': sb.append("\\\\"); break;
-                case '\b': sb.append("\\b"); break;
-                case '\f': sb.append("\\f"); break;
-                case '\n': sb.append("\\n"); break;
-                case '\r': sb.append("\\r"); break;
-                case '\t': sb.append("\\t"); break;
+                case '"':
+                    sb.append("\\\"");
+                    break;
+                case '\\':
+                    sb.append("\\\\");
+                    break;
+                case '\b':
+                    sb.append("\\b");
+                    break;
+                case '\f':
+                    sb.append("\\f");
+                    break;
+                case '\n':
+                    sb.append("\\n");
+                    break;
+                case '\r':
+                    sb.append("\\r");
+                    break;
+                case '\t':
+                    sb.append("\\t");
+                    break;
                 default:
                     if (ch <= 0x1F) sb.append(String.format("\\u%04x", (int) ch));
                     else sb.append(ch);
