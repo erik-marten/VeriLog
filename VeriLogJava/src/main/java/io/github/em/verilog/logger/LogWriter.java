@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 final class LogWriter implements Runnable {
 
@@ -48,6 +49,8 @@ final class LogWriter implements Runnable {
     private final SignedEntryFactory signedFactory = new SignedEntryFactory();
     private final HashChainState chain = HashChainState.fresh();
     private final CountDownLatch terminated;
+
+    private final AtomicReference<Throwable> firstFailure = new AtomicReference<>();
 
     LogWriter(
             VeriLoggerConfig cfg,
@@ -151,6 +154,7 @@ final class LogWriter implements Runnable {
 
     private void onFault(Throwable t) {
         faulted.set(true);
+        firstFailure.compareAndSet(null, t);
         try {
             file.flush(true);
         } catch (Exception ignored) {
