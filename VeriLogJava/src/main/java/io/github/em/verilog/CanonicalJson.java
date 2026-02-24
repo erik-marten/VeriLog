@@ -117,10 +117,6 @@ public final class CanonicalJson {
                     "Floating point numbers are not allowed in Canonical JSON."
             );
         }
-        if (node.isIntegralNumber()) {
-            sb.append(node.longValue());
-            return;
-        }
         throw new IllegalArgumentException("Unsupported JSON type: " + node.getNodeType());
     }
 
