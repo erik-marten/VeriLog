@@ -44,7 +44,7 @@ public final class VeriLogReader {
 
         long expectedSeq = 1;
         String prevHashExpected = "0".repeat(64);
-        long lastOk = 0;
+        long lastSuccess = 0;
 
         try (FramedFileReader r = new FramedFileReader(vlogPath)) {
 
@@ -153,14 +153,14 @@ public final class VeriLogReader {
 
                 prevHashExpected = expectedEntryHashHex;
                 expectedSeq++;
-                lastOk = f.seq;
+                lastSuccess = f.seq;
             }
 
         } catch (java.io.IOException e) {
             throw new VeriLogIoException("io.read_failed", e, vlogPath.toString());
         }
 
-        return VerifyReport.ok(lastOk);
+        return VerifyReport.success(lastSuccess);
     }
 
     public DirectoryVerifyReport verifyDirectory(Path logDir, byte[] dek32, PublicKeyResolver keyResolver)
@@ -218,9 +218,9 @@ public final class VeriLogReader {
             boolean tolerate = f.getFileName().toString().equals("current.vlog");
             VerifyReport r = verifyFile(f, dek32, keyResolver, tolerate);
 
-            report.add(new DirectoryVerifyReport.FileResult(f, r.ok, r.seq, r.reason));
+            report.add(new DirectoryVerifyReport.FileResult(f, r.valid, r.seq, r.reason));
 
-            if (!r.ok && stopOnFirstFailure) break;
+            if (!r.valid && stopOnFirstFailure) break;
         }
 
         return report;

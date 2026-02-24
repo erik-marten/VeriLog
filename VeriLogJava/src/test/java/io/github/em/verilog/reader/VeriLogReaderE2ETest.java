@@ -46,7 +46,7 @@ class VeriLogReaderE2ETest {
         VeriLogReader r = new VeriLogReader();
         VerifyReport rep = r.verifyFile(file, tm.dek32, tm.keyResolver);
 
-        assertTrue(rep.ok);
+        assertTrue(rep.valid);
         assertEquals(2, rep.seq);
         assertNull(rep.reason);
     }
@@ -73,7 +73,7 @@ class VeriLogReaderE2ETest {
         VeriLogReader r = new VeriLogReader();
         VerifyReport rep = r.verifyFile(file, tm.dek32, tm.keyResolver);
 
-        assertFalse(rep.ok);
+        assertFalse(rep.valid);
         assertEquals(1, rep.seq);
         assertNotNull(rep.reason);
         assertTrue(rep.reason.contains("decrypt") || rep.reason.contains("auth"));
@@ -95,7 +95,7 @@ class VeriLogReaderE2ETest {
         VeriLogReader r = new VeriLogReader();
         VerifyReport rep = r.verifyFile(file, tm.dek32, tm.keyResolver);
 
-        assertFalse(rep.ok);
+        assertFalse(rep.valid);
         assertEquals(2, rep.seq);
         assertEquals("prevHash mismatch", rep.reason);
     }
@@ -124,7 +124,7 @@ class VeriLogReaderE2ETest {
         VeriLogReader r = new VeriLogReader();
         VerifyReport rep = r.verifyFile(file, tm.dek32, tm.keyResolver);
 
-        assertFalse(rep.ok);
+        assertFalse(rep.valid);
         assertEquals(1, rep.seq);
         assertEquals("signature invalid", rep.reason);
     }
@@ -151,7 +151,7 @@ class VeriLogReaderE2ETest {
         VeriLogReader r = new VeriLogReader();
         VerifyReport rep = r.verifyFile(file, tm.dek32, tm.keyResolver);
 
-        assertFalse(rep.ok);
+        assertFalse(rep.valid);
         assertEquals(3, rep.seq);
         assertNotNull(rep.reason);
         assertTrue(rep.reason.contains("not contiguous"));

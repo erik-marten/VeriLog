@@ -80,8 +80,8 @@ public final class VerifyCommand {
             if (file != null) {
                 boolean tolerate = "true".equalsIgnoreCase(flags.getOrDefault("tolerate-partial", "false"));
                 VerifyReport rep = reader.verifyFile(file, dek32, resolver, tolerate);
-                printFileResult(file, rep.ok, rep.seq, rep.reason);
-                return rep.ok ? 0 : 2;
+                printFileResult(file, rep.valid, rep.seq, rep.reason);
+                return rep.valid ? 0 : 2;
             } else {
                 DirectoryVerifyReport dr = reader.verifyDirectory(dir, dek32, resolver, stopOnFirstFailure);
                 boolean allOk = true;
