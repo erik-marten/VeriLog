@@ -9,6 +9,7 @@
  */
 package io.github.em.verilog.cli;
 
+import io.github.em.verilog.errors.VeriLogException;
 import io.github.em.verilog.errors.VeriLogFormatException;
 import io.github.em.verilog.reader.*;
 import io.github.em.verilog.sign.BcPemKeys;
@@ -126,7 +127,7 @@ public final class VerifyCommand {
         return pubPaths;
     }
 
-    private int executeVerify(RunConfig cfg) throws Exception {
+    private int executeVerify(RunConfig cfg) throws VeriLogException {
         VeriLogReader reader = new VeriLogReader();
 
         if (cfg.file != null) {
@@ -143,7 +144,7 @@ public final class VerifyCommand {
 
     private boolean printDirectoryResults(DirectoryVerifyReport dr) {
         boolean allOk = true;
-        for (var r : dr.results()) { // if Java 8, replace 'var' with explicit type
+        for (var r : dr.results()) {
             printFileResult(r.file, r.ok, r.lastSeqOrFailSeq, r.reason);
             if (!r.ok) allOk = false;
         }
