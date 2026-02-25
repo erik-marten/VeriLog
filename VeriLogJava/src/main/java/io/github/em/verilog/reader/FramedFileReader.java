@@ -73,6 +73,7 @@ public final class FramedFileReader implements AutoCloseable {
             throw new VeriLogIoException("io.read_failed", e, path.toString());
         }
     }
+
     // Test constructor only visible from inside
     FramedFileReader(FileChannel ch, byte[] rawHeaderJson, int headerLenTotal, Path path) {
         this.path = path;
@@ -81,6 +82,7 @@ public final class FramedFileReader implements AutoCloseable {
         this.fileIdBytes = null;
         this.headerLenTotal = headerLenTotal;
     }
+
     /**
      * Exposes raw header bytes (UTF-8 JSON).
      */
@@ -146,7 +148,7 @@ public final class FramedFileReader implements AutoCloseable {
     public Iterable<Frame> frames(boolean tolerateTrailingPartial) {
         return () -> new java.util.Iterator<>() {
             private Frame next;
-            private boolean fetched = false;
+            private boolean fetched;
 
             private void fetch() throws VeriLogIoException, VeriLogFormatException {
                 if (!fetched) {
@@ -155,39 +157,34 @@ public final class FramedFileReader implements AutoCloseable {
                 }
             }
 
-            @Override
-            public boolean hasNext() {
+            private void fetchUnchecked() {
                 try {
                     fetch();
-                } catch (VeriLogIoException e) {
-                    throw new RuntimeException(e);
-                } catch (VeriLogFormatException e) {
+                } catch (VeriLogIoException | VeriLogFormatException e) {
                     throw new RuntimeException(e);
                 }
+            }
+
+            @Override
+            public boolean hasNext() {
+                fetchUnchecked();
                 return next != null;
             }
 
             @Override
             public Frame next() {
-                try {
-                    fetch();
-                } catch (VeriLogIoException e) {
-                    throw new RuntimeException(e);
-                } catch (VeriLogFormatException e) {
-                    throw new RuntimeException(e);
-                }
-                if (next == null) {
-                    throw new java.util.NoSuchElementException();
-                }
+                fetchUnchecked();
+                if (next == null) throw new java.util.NoSuchElementException();
+
                 Frame result = next;
-                fetched = false;
                 next = null;
+                fetched = false;
                 return result;
             }
         };
     }
 
-            private void readFully(ByteBuffer buf) throws IOException {
+    private void readFully(ByteBuffer buf) throws IOException {
         while (buf.hasRemaining()) {
             int r = ch.read(buf);
             if (r == -1) throw new EOFException();

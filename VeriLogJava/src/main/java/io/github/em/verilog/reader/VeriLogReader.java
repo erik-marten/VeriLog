@@ -32,7 +32,6 @@ public final class VeriLogReader {
     private final ObjectMapper om = new ObjectMapper();
     private static final String ENTRY_HASH = "entryHash";
     private static final String CURRENT_VLOG = "current.vlog";
-    private static Path path = null;
 
     public VerifyReport verifyFile(Path vlogPath, byte[] dek32, PublicKeyResolver keyResolver)
             throws VeriLogException {
@@ -49,11 +48,10 @@ public final class VeriLogReader {
         Objects.requireNonNull(vlogPath, "vlogPath");
         Objects.requireNonNull(dek32, "dek32");
         Objects.requireNonNull(keyResolver, "keyResolver");
-        path = vlogPath;
         final State s = new State();
 
         try (FramedFileReader r = new FramedFileReader(vlogPath)) {
-            final Header h = readHeader(r);
+            final Header h = readHeader(r, vlogPath);
 
             r.positionAtFirstFrame();
 
@@ -138,10 +136,10 @@ public final class VeriLogReader {
     // Header
     // ---------------------------
 
-    private Header readHeader(FramedFileReader r) throws VeriLogException {
+    private Header readHeader(FramedFileReader r, Path vlogPath) throws VeriLogException {
         final byte[] raw = r.rawHeaderJsonBytes();
         if (raw == null || raw.length == 0) {
-            throw new VeriLogFormatException("format.missing_header", path.toString());
+            throw new VeriLogFormatException("format.missing_header", vlogPath.toString());
         }
         final JsonNode header;
         try {
