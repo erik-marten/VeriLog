@@ -65,7 +65,7 @@ class VeriLogReaderE2ETest {
         // Flip 1 byte in the payload ciphertext (after header).
         byte[] all = Files.readAllBytes(file);
         int headerLenTotal = headerLenTotal(all);
-        // After header, layout is: len(4) + payload. We flip near the end of file (inside ct/tag).
+        // After header, layout is: len(4) + payload. Flip near the end of file (inside ct/tag).
         int flipIndex = Math.min(all.length - 10, headerLenTotal + 4 + 1 + 8 + 24 + 5);
         all[flipIndex] ^= 0x01;
         Files.write(file, all, StandardOpenOption.TRUNCATE_EXISTING);
@@ -86,7 +86,7 @@ class VeriLogReaderE2ETest {
         Path dir = Files.createTempDirectory("vlog-bad-prevhash");
         Path file = dir.resolve("current.vlog");
 
-        // Entry 2 is forced to carry a wrong prevHash (we pass it explicitly).
+        // Entry 2 is forced to carry a wrong prevHash
         writeVlogFile(file, "VeriLog|v1", tm.dek32,
                 new EntrySpec(1, "0".repeat(64), "evt1", OM.createObjectNode().put("x", 1)),
                 new EntrySpec(2, "f".repeat(64), "evt2", OM.createObjectNode().put("x", 2)) // WRONG
@@ -136,7 +136,7 @@ class VeriLogReaderE2ETest {
         Path dir = Files.createTempDirectory("vlog-bad-seq");
         Path file = dir.resolve("current.vlog");
 
-        // We'll write entries seq 1 and 3 (gap).
+        // Write entries seq 1 and 3 (gap).
         ObjectNode u1 = buildUnsignedEntry(1, "0".repeat(64), tm.keyIdHex, "evt1", OM.createObjectNode().put("x", 1));
         SignedPayload s1 = signEntry(u1, tm, false);
 
