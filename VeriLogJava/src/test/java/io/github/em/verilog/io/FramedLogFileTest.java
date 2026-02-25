@@ -2,9 +2,12 @@ package io.github.em.verilog.io;
 
 import io.github.em.verilog.CryptoUtil;
 import io.github.em.verilog.errors.VeriLogException;
+import io.github.em.verilog.errors.VeriLogFormatException;
 import io.github.em.verilog.errors.VeriLogIoException;
+import io.github.em.verilog.reader.FramedFileReader;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.MockedConstruction;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -64,7 +67,7 @@ public class FramedLogFileTest {
         }
 
         try (FramedLogFile f2 = FramedLogFile.openOrCreate(file, dek, "aad")) {
-            // after recovery we keep seq=1 and seq=2 -> next is 3
+            // after recovery keep seq=1 and seq=2 -> next is 3
             assertEquals(3, f2.nextSeq(), "Should recover to seq=3 (max=2) after truncating partial last frame");
         }
     }
@@ -126,4 +129,27 @@ public class FramedLogFileTest {
         FramedLogFile.closeOnInitFailure(null, init);
         assertEquals(0, init.getSuppressed().length);
     }
+
+
+    @Test
+    void next_should_throw_NoSuchElementException_when_no_more_frames() {
+        try (MockedConstruction<FramedFileReader> mocked =
+                     mockConstruction(FramedFileReader.class, (mock, ctx) -> {
+                         when(mock.readNextFrame(false)).thenReturn(null); // EOF
+                     })) {
+
+            FramedFileReader r = new FramedFileReader(Path.of("dummy.vlog"));
+            var it = r.frames(false).iterator();
+
+            assertFalse(it.hasNext());
+            assertThrows(java.util.NoSuchElementException.class, it::next);
+        } catch (VeriLogIoException e) {
+            throw new RuntimeException(e);
+        } catch (VeriLogFormatException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }
+
+
+

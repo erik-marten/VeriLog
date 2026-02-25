@@ -120,16 +120,16 @@ public final class VeriLogger implements Closeable {
     public void close(long timeoutMs) throws IOException {
         if (!closed.compareAndSet(false, true)) return;
 
-        // Hook entfernen, damit close nicht doppelt durch Hook + User läuft
+        // Remove hook that close does not run duoble hook + user
         if (shutdownHook != null) {
             try {
                 Runtime.getRuntime().removeShutdownHook(shutdownHook);
             } catch (IllegalStateException ignored) {
-                // JVM ist schon im Shutdown -> removeShutdownHook nicht erlaubt, ok.
+                // JVM is in shutdown -> removeShutdownHook not allowed. valid
             }
         }
 
-        // 1) Poison Pill rein (oder queue.close())
+        // 1) Poisin pill
         long deadline = System.currentTimeMillis() + Math.max(0, timeoutMs);
         boolean offered = false;
         while (!offered && System.currentTimeMillis() < deadline) {
@@ -141,14 +141,14 @@ public final class VeriLogger implements Closeable {
             }
         }
 
-        // 2) Warten bis Writer wirklich fertig ist
+        // 2) Wait until writer finished
         long remaining = deadline - System.currentTimeMillis();
         if (remaining < 0) remaining = 0;
 
         try {
             boolean ok = terminated.await(remaining, TimeUnit.MILLISECONDS);
             if (!ok) {
-                // Notfall: best effort und hart melden
+                // Best effort and throw
                 writer.flushAndCloseBestEffort();
                 throw new IOException("Timed out waiting for writer thread to terminate.");
             }

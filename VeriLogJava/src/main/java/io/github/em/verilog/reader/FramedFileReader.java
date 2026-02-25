@@ -143,7 +143,51 @@ public final class FramedFileReader implements AutoCloseable {
         }
     }
 
-    private void readFully(ByteBuffer buf) throws IOException {
+    public Iterable<Frame> frames(boolean tolerateTrailingPartial) {
+        return () -> new java.util.Iterator<>() {
+            private Frame next;
+            private boolean fetched = false;
+
+            private void fetch() throws VeriLogIoException, VeriLogFormatException {
+                if (!fetched) {
+                    next = readNextFrame(tolerateTrailingPartial);
+                    fetched = true;
+                }
+            }
+
+            @Override
+            public boolean hasNext() {
+                try {
+                    fetch();
+                } catch (VeriLogIoException e) {
+                    throw new RuntimeException(e);
+                } catch (VeriLogFormatException e) {
+                    throw new RuntimeException(e);
+                }
+                return next != null;
+            }
+
+            @Override
+            public Frame next() {
+                try {
+                    fetch();
+                } catch (VeriLogIoException e) {
+                    throw new RuntimeException(e);
+                } catch (VeriLogFormatException e) {
+                    throw new RuntimeException(e);
+                }
+                if (next == null) {
+                    throw new java.util.NoSuchElementException();
+                }
+                Frame result = next;
+                fetched = false;
+                next = null;
+                return result;
+            }
+        };
+    }
+
+            private void readFully(ByteBuffer buf) throws IOException {
         while (buf.hasRemaining()) {
             int r = ch.read(buf);
             if (r == -1) throw new EOFException();
