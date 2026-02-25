@@ -9,9 +9,22 @@
  */
 package io.github.em.verilog.cli;
 
+import java.util.function.IntConsumer;
+
 public final class VeriLogCli {
+    // package-private so tests can override it
+    static IntConsumer exitHook = System::exit;
+
     public static void main(String[] args) {
-        int code = new VerifyCommand().run(args);
-        System.exit(code);
+        int code = execute(args);
+        exit(code);
+    }
+
+    static void exit(int code) {
+        exitHook.accept(code);
+    }
+
+    static int execute(String[] args) {
+        return new VerifyCommand().run(args);
     }
 }
