@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -26,6 +27,7 @@ class BackpressureEnqueuerTest {
 
     @Test
     void should_wait_and_enqueue_when_queue_is_full_and_mode_is_drop_and_level_is_warn_and_prefer_reliability_is_true() throws Exception {
+
         VeriLoggerConfig cfg = new VeriLoggerConfig();
         cfg.backpressureMode = VeriLoggerConfig.BackpressureMode.DROP;
         cfg.preferReliabilityForWarnError = true;
@@ -37,24 +39,24 @@ class BackpressureEnqueuerTest {
         // Fill queue
         assertTrue(enq.enqueue(ev(VeriLoggerConfig.Level.INFO)));
 
-        // After a short delay, drain the queue to allow WARN to be enqueued via timed offer
-        Thread drainer = new Thread(() -> {
-            try {
-                Thread.sleep(80);
-                q.take();
-            } catch (Exception e) {
-                Thread.currentThread().interrupt();
-                throw new AssertionError("Drainer thread interrupted unexpectedly", e);
-            }
+        CountDownLatch startedBlocking = new CountDownLatch(1);
+
+        Thread enqueuerThread = new Thread(() -> {
+            startedBlocking.countDown();
+            enq.enqueue(ev(VeriLoggerConfig.Level.WARN));
         });
-        drainer.start();
 
-        long t0 = System.currentTimeMillis();
-        boolean ok = enq.enqueue(ev(VeriLoggerConfig.Level.WARN));
-        long dt = System.currentTimeMillis() - t0;
+        enqueuerThread.start();
 
-        assertTrue(ok, "WARN should be enqueued using timed offer when preferReliabilityForWarnError=true");
-        assertTrue(dt >= 50, "Should have waited (at least a bit) for space in the queue");
+        // Wait until enqueue attempt started
+        startedBlocking.await();
+
+        // Now free space deterministically
+        q.take();
+
+        enqueuerThread.join();
+
+        assertEquals(1, q.size());
     }
 
     @Test

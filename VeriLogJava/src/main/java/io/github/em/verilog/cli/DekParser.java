@@ -30,6 +30,6 @@ final class DekParser {
             if (b.length != 32) throw new IllegalArgumentException("--dek-b64 must decode to 32 bytes");
             return b;
         }
-        return null;
+        return new byte[0];
     }
 }

@@ -88,7 +88,7 @@ public final class VerifyCommand {
         }
 
         byte[] dek32 = DekParser.parseDek(flags);
-        if (dek32 == null) {
+        if (dek32.length == 0) {
             throw new IllegalArgumentException(
                     "Provide --dek-hex (64 hex chars) or --dek-b64 (base64 of 32 bytes)."
             );
@@ -177,22 +177,35 @@ public final class VerifyCommand {
 
     private static Map<String, String> parseFlags(String[] args) {
         Map<String, String> m = new HashMap<>();
-        for (int i = 0; i < args.length; i++) {
+        int i = 0;
+
+        while (i < args.length) {
             String a = args[i];
-            if (!a.startsWith("--")) throw new IllegalArgumentException("Unexpected arg: " + a);
+
+            if (!a.startsWith("--")) {
+                throw new IllegalArgumentException("Unexpected arg: " + a);
+            }
 
             String key = a.substring(2);
             String val = "true";
+            i++;
 
-            // flags with values
-            if (key.equals("dir") || key.equals("file") || key.equals("dek-hex") || key.equals("dek-b64") || key.equals("pub")
-                    || key.equals("stop-on-fail") || key.equals("tolerate-partial")) {
-                if (i + 1 >= args.length) throw new IllegalArgumentException("Missing value for --" + key);
-                val = args[++i];
+            if (key.equals("dir") || key.equals("file") ||
+                    key.equals("dek-hex") || key.equals("dek-b64") ||
+                    key.equals("pub") || key.equals("stop-on-fail") ||
+                    key.equals("tolerate-partial")) {
+
+                if (i >= args.length) {
+                    throw new IllegalArgumentException("Missing value for --" + key);
+                }
+
+                val = args[i];
+                i++;
             }
 
             m.put(key, val);
         }
+
         return m;
     }
 

@@ -55,13 +55,12 @@ public final class BcEcdsaVerifier {
         final byte[] der;
         try {
             der = EcdsaSigCodec.rawToDer(sigRaw64);
-        } catch (IllegalArgumentException e) {
-            // malformed raw signature; treat as invalid signature (untrusted input)
+        } catch (IllegalArgumentException | VeriLogFormatException e) {
+            // Malformed signature input; treat as invalid signature (untrusted input)
             return false;
         } catch (RuntimeException e) {
+            // Unexpected internal/runtime failure
             throw new VeriLogCryptoException("crypto.sig_encode_failed", e);
-        } catch (VeriLogFormatException e) {
-            throw new RuntimeException(e);
         }
 
         final BigInteger[] rs;

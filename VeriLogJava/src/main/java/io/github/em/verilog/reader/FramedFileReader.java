@@ -11,6 +11,7 @@ package io.github.em.verilog.reader;
 
 import io.github.em.verilog.errors.VeriLogFormatException;
 import io.github.em.verilog.errors.VeriLogIoException;
+import io.github.em.verilog.errors.VeriLogUncheckedException;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -112,15 +113,10 @@ public final class FramedFileReader implements AutoCloseable {
                 throw new VeriLogFormatException("format.invalid_payload_length", payloadLen);
             }
 
-            ByteBuffer payload = ByteBuffer.allocate(payloadLen).order(ByteOrder.BIG_ENDIAN);
-            try {
-                readFully(payload);
-            } catch (EOFException e) {
-                if (tolerateTrailingPartial) return null;
-                throw new VeriLogIoException("io.partial_frame_payload", e);
+            ByteBuffer payload = readPayloadHandlingPartial(payloadLen, tolerateTrailingPartial);
+            if (payload == null) {
+                return null; // trailing partial tolerated
             }
-
-            payload.flip();
 
             byte type = payload.get();
             long seq = payload.getLong();
@@ -158,7 +154,7 @@ public final class FramedFileReader implements AutoCloseable {
                 try {
                     fetch();
                 } catch (VeriLogIoException | VeriLogFormatException e) {
-                    throw new RuntimeException(e);
+                    throw new VeriLogUncheckedException(e);
                 }
             }
 
@@ -179,6 +175,26 @@ public final class FramedFileReader implements AutoCloseable {
                 return result;
             }
         };
+    }
+
+    private ByteBuffer readPayloadHandlingPartial(int payloadLen, boolean tolerateTrailingPartial)
+            throws IOException, VeriLogIoException {
+
+        ByteBuffer payload = ByteBuffer
+                .allocate(payloadLen)
+                .order(ByteOrder.BIG_ENDIAN);
+
+        try {
+            readFully(payload);
+            payload.flip();
+            return payload;
+
+        } catch (EOFException e) {
+            if (tolerateTrailingPartial) {
+                return null;
+            }
+            throw new VeriLogIoException("io.partial_frame_payload", e);
+        }
     }
 
     private void readFully(ByteBuffer buf) throws IOException {

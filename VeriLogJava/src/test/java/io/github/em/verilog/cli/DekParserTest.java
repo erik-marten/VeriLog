@@ -50,6 +50,6 @@ final class DekParserTest {
 
     @Test
     void should_return_null_when_no_dek_flag_provided() throws Exception {
-        assertNull(DekParser.parseDek(Map.of()));
+        assertEquals(DekParser.parseDek(Map.of()).length, 0);
     }
 }

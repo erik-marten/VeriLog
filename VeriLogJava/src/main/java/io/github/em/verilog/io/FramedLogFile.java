@@ -48,7 +48,7 @@ public final class FramedLogFile implements Closeable {
             ch = FileChannel.open(path,
                     StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
 
-            f = new FramedLogFile(path, ch, new SecureRandom(), dek32, aad);
+            f = new FramedLogFile(ch, new SecureRandom(), dek32, aad);
 
             if (!exists || ch.size() == 0) {
                 f.writeHeader();
@@ -83,7 +83,7 @@ public final class FramedLogFile implements Closeable {
         }
     }
 
-    private FramedLogFile(Path path, FileChannel ch, SecureRandom rng, byte[] dek32, String aad) {
+    private FramedLogFile(FileChannel ch, SecureRandom rng, byte[] dek32, String aad) {
         if (dek32 == null || dek32.length != 32) throw new IllegalArgumentException("DEK must be 32 bytes");
         this.ch = ch;
         this.rng = rng;

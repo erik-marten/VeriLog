@@ -94,6 +94,8 @@ final class LogWriter implements Runnable {
             drainRemaining();
             flushFinal();
         } catch (Throwable t) {
+            // This is the writer thread boundary. The logger must be marked as faulted
+            // even for serious JVM Errors to avoid silent thread death.
             onFault(t);
         } finally {
             closeAndSignalTermination();
@@ -288,10 +290,6 @@ final class LogWriter implements Runnable {
 
     private Path currentPath() {
         return cfg.logDir.resolve(cfg.currentFileName);
-    }
-
-    private FramedLogFile openOrResumeCurrentFile() throws VeriLogIoException {
-        return FramedLogFile.openOrCreate(currentPath(), cfg.encryptionKey32, cfg.aadPrefix);
     }
 
     private long estimateFrameBytes(int plaintextLen) {
