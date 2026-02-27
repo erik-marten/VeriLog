@@ -89,7 +89,6 @@ class VeriLoggerTest {
             boolean found = false;
             for (Path p : ds) {
                 found = true;
-                break;
             }
             assertTrue(found, "Expected a rotated file in logDir");
         }
@@ -148,7 +147,6 @@ class VeriLoggerTest {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         while (System.currentTimeMillis() < deadline) {
             if (condition.getAsBoolean()) return;
-            Thread.sleep(20);
         }
         fail("Condition not met within " + timeout);
     }

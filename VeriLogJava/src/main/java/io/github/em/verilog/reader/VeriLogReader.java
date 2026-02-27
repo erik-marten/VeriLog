@@ -72,45 +72,45 @@ public final class VeriLogReader {
     // ---------------------------
 
     private VerifyReport verifyOneFrame(
-            Frame f,
-            State s,
-            Header h,
+            Frame frame,
+            State state,
+            Header header,
             byte[] dek32,
             PublicKeyResolver keyResolver
     ) throws VeriLogException {
 
-        VerifyReport r;
+        VerifyReport report;
 
-        if ((r = verifyFrameMeta(f, s.expectedSeq)) != null) return r;
+        if ((report = verifyFrameMeta(frame, state.expectedSeq)) != null) return report;
 
-        final byte[] aad = buildAad(h.aadPrefixBytes, f.type, f.seq);
+        final byte[] aad = buildAad(header.aadPrefixBytes, frame.type, frame.seq);
 
         final byte[] plaintext;
         try {
-            plaintext = XChaCha20Poly1305.decrypt(dek32, f.nonce24, f.ct, aad);
+            plaintext = XChaCha20Poly1305.decrypt(dek32, frame.nonce24, frame.ct, aad);
         } catch (InvalidCipherTextException e) {
-            return VerifyReport.fail(f.seq, "decrypt/auth failed");
+            return VerifyReport.fail(frame.seq, "decrypt/auth failed");
         }
 
         final JsonNode signed;
         try {
             signed = om.readTree(new String(plaintext, StandardCharsets.UTF_8));
         } catch (JsonProcessingException e) {
-            return VerifyReport.fail(f.seq, "invalid signed JSON");
+            return VerifyReport.fail(frame.seq, "invalid signed JSON");
         }
 
-        if ((r = verifyRequiredFields(signed, f)) != null) return r;
-        if ((r = verifyJsonSeqMatchesFrame(signed, f)) != null) return r;
-        if ((r = verifyPrevHashMatches(signed, f, s.prevHashExpected)) != null) return r;
+        if ((report = verifyRequiredFields(signed, frame)) != null) return report;
+        if ((report = verifyJsonSeqMatchesFrame(signed, frame)) != null) return report;
+        if ((report = verifyPrevHashMatches(signed, frame, state.prevHashExpected)) != null) return report;
 
-        final CanonicalAndHash ch = canonicalizeAndHash(signed, f);
+        final CanonicalAndHash ch = canonicalizeAndHash(signed, frame);
         if (ch.failure != null) return ch.failure;
 
-        final ECPublicKeyParameters pub = resolveKeyOrFail(signed, keyResolver, f);
-        if (pub == null) return VerifyReport.fail(f.seq, "unknown keyId"); // should not happen
+        final ECPublicKeyParameters pub = resolveKeyOrFail(signed, keyResolver);
+        if (pub == null) return VerifyReport.fail(frame.seq, "unknown keyId"); // should not happen
 
-        final byte[] sigRaw = decodeSignatureOrFail(signed, f);
-        if (sigRaw == null) return VerifyReport.fail(f.seq, "signature encoding invalid");
+        final byte[] sigRaw = decodeSignatureOrFail(signed);
+        if (sigRaw == null) return VerifyReport.fail(frame.seq, "signature encoding invalid");
 
         final boolean sigOk;
         try {
@@ -121,13 +121,13 @@ public final class VeriLogReader {
         }
 
         if (!sigOk) {
-            return VerifyReport.fail(f.seq, "signature invalid");
+            return VerifyReport.fail(frame.seq, "signature invalid");
         }
 
         // Update state (single place, after full success)
-        s.prevHashExpected = ch.expectedEntryHashHex;
-        s.expectedSeq++;
-        s.lastOk = f.seq;
+        state.prevHashExpected = ch.expectedEntryHashHex;
+        state.expectedSeq++;
+        state.lastOk = frame.seq;
 
         return null;
     }
@@ -250,7 +250,7 @@ public final class VeriLogReader {
         return CanonicalAndHash.ok(entryHashBytes, expectedEntryHashHex);
     }
 
-    private ECPublicKeyParameters resolveKeyOrFail(JsonNode signed, PublicKeyResolver keyResolver, Frame f) {
+    private ECPublicKeyParameters resolveKeyOrFail(JsonNode signed, PublicKeyResolver keyResolver) {
         String keyId = signed.get("keyId").asText();
         ECPublicKeyParameters pub = keyResolver.resolveByKeyIdHex(keyId);
         if (pub == null) {
@@ -260,7 +260,7 @@ public final class VeriLogReader {
         return pub;
     }
 
-    private byte[] decodeSignatureOrFail(JsonNode signed, Frame f) {
+    private byte[] decodeSignatureOrFail(JsonNode signed) {
         try {
             return Base64.getDecoder().decode(signed.get("sig").asText());
         } catch (IllegalArgumentException e) {

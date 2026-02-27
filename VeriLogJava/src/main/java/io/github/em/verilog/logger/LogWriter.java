@@ -12,6 +12,7 @@ package io.github.em.verilog.logger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.em.verilog.audit.HashChainState;
 import io.github.em.verilog.audit.SignedEntryFactory;
+import io.github.em.verilog.errors.VeriLogCryptoException;
 import io.github.em.verilog.errors.VeriLogIoException;
 import io.github.em.verilog.io.FramedLogFile;
 
@@ -32,7 +33,6 @@ final class LogWriter implements Runnable {
     private final BlockingQueue<LogEvent> queue;
     private final LoggerMetrics metrics;
 
-    private final ObjectMapper om = new ObjectMapper();
     private final AtomicBoolean closed;
     private final AtomicBoolean faulted;
 
@@ -44,7 +44,6 @@ final class LogWriter implements Runnable {
     private volatile long bytesWrittenCurrent;
     private volatile long lastFlushMs;
     private int sinceFlush;
-    private long nextSeq;
 
     private final SignedEntryFactory signedFactory = new SignedEntryFactory();
     private final HashChainState chain = HashChainState.fresh();
@@ -81,7 +80,6 @@ final class LogWriter implements Runnable {
 // Create file with 0600 only if it doesn't exist yet (POSIX only)
             ensureFileExistsWith0600IfPossible(current);
             this.file = FramedLogFile.openOrCreate(current, cfg.encryptionKey32, cfg.aadPrefix);
-            this.nextSeq = file.nextSeq();
             this.bytesWrittenCurrent = Files.exists(current) ? Files.size(current) : 0;
             this.lastFlushMs = System.currentTimeMillis();
         } catch (IOException e) {
@@ -155,34 +153,51 @@ final class LogWriter implements Runnable {
     private void onFault(Throwable t) {
         faulted.set(true);
         firstFailure.compareAndSet(null, t);
+        // Snapshot to avoid races with rotation/close and avoid NPE masking the root cause
+        FramedLogFile f = this.file;
+        if (f == null) return;
         try {
-            file.flush(true);
+            f.flush(true);
         } catch (Exception ignored) {
+            // Best-effort only: already faulted and don't want to hide the original failure.
         }
     }
 
     private void closeAndSignalTermination() {
-        try {
-            if (file != null) file.close();
-        } catch (Exception ignored) {
-        }
-        terminated.countDown();
-    }
+        FramedLogFile f = this.file; // snapshot to avoid race
 
-    void flushAndCloseBestEffort() {
         try {
-            FramedLogFile f = this.file;
             if (f != null) {
-                f.flush(true);
                 f.close();
             }
         } catch (Exception ignored) {
+            // Best-effort close: terminating and must not mask the original failure.
+        } finally {
+            terminated.countDown();
+        }
+    }
+
+    void flushAndCloseBestEffort() {
+        FramedLogFile f = this.file; // snapshot to avoid race
+        if (f == null) return;
+        try {
+            f.flush(true);
+        } catch (Exception ignored) {
+            // Best-effort: ignore flush failure during shutdown.
+        }
+
+        try {
+            f.close();
+        } catch (Exception ignored) {
+            // Best-effort: ignore close failure during shutdown.
         }
     }
 
     private void writeOne(LogEvent ev) throws IOException {
+        final FramedLogFile f = this.file; // snapshot (rotate/close safety)
+        if (f == null) throw new IOException("Log file is not open");
+
         try {
-            // Build SignedEntry JSON (plaintext before encryption)
             byte[] signedEntryJson = signedFactory.buildSignedEntryJsonUtf8(
                     chain,
                     cfg.signer,
@@ -195,20 +210,31 @@ final class LogWriter implements Runnable {
                     ev.ts
             );
 
-            long seqForFrame = chain.nextSeq() - 1; //  just allocated it
-            file.appendEncryptedJson(FramedLogFile.TYPE_LOG, seqForFrame, signedEntryJson);
+            long seqForFrame = chain.nextSeq() - 1; // just allocated it
+            f.appendEncryptedJson(FramedLogFile.TYPE_LOG, seqForFrame, signedEntryJson);
 
             metrics.incWritten();
             bytesWrittenCurrent += estimateFrameBytes(signedEntryJson.length);
             sinceFlush++;
 
-        } catch (Exception e) {
+        } catch (IOException ioe) {
             faulted.set(true);
-            try {
-                file.flush(true);
-            } catch (Exception ignored) {
-            }
-            throw new IOException("Failed to build/sign/encrypt log entry", e);
+            bestEffortFlush(f);
+            throw ioe;
+
+        } catch (VeriLogCryptoException | RuntimeException vce) {
+            faulted.set(true);
+            bestEffortFlush(f);
+            throw new IOException("Failed to build/sign/encrypt log entry", vce);
+
+        }
+    }
+
+    private static void bestEffortFlush(FramedLogFile f) {
+        try {
+            f.flush(true);
+        } catch (Exception ignored) {
+            // best-effort only; don't mask original failure
         }
     }
 
@@ -232,7 +258,6 @@ final class LogWriter implements Runnable {
             moveAtomicOrReplace(current, rotated);
 
             this.file = FramedLogFile.openOrCreate(current, cfg.encryptionKey32, cfg.aadPrefix);
-            this.nextSeq = file.nextSeq();
             this.bytesWrittenCurrent = Files.size(current);
             this.sinceFlush = 0;
             this.lastFlushMs = System.currentTimeMillis();

@@ -25,7 +25,6 @@ public final class FramedFileReader implements AutoCloseable {
     private final Path path;
     private final FileChannel ch;
     private final byte[] aadPrefix;
-    private final byte[] fileIdBytes; // optional for later for now null
     private final int headerLenTotal; // bytes to skip before frames
 
     public FramedFileReader(Path path)
@@ -66,7 +65,6 @@ public final class FramedFileReader implements AutoCloseable {
             hdr.get(hdrBytes);
 
             this.aadPrefix = hdrBytes;
-            this.fileIdBytes = null;
             this.headerLenTotal = (4 + 1 + 1 + 2) + headerLen;
 
         } catch (IOException e) {
@@ -79,7 +77,6 @@ public final class FramedFileReader implements AutoCloseable {
         this.path = path;
         this.ch = ch;
         this.aadPrefix = rawHeaderJson;
-        this.fileIdBytes = null;
         this.headerLenTotal = headerLenTotal;
     }
 
