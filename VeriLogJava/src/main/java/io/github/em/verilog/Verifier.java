@@ -23,7 +23,9 @@ import java.util.Objects;
 public final class Verifier {
     private Verifier() {
     }
+
     private static final String ENTRY_HASH = "entryHash";
+
     public static final class VerifyReport {
         public final boolean valid;
         public final long seq;
@@ -74,43 +76,25 @@ public final class Verifier {
             }
 
             final byte[] sigRaw;
-            try {
-                sigRaw = Base64.getDecoder().decode(signedEntry.get("sig").textValue());
-            } catch (IllegalArgumentException e) {
-                return VerifyReport.fail(seq, "signature encoding invalid");
-            }
-
+            sigRaw = convertToRaw(signedEntry);
+            if (sigRaw == null) return VerifyReport.fail(seq, "signature encoding invalid");
             final byte[] sigDer;
-            try {
-                sigDer = EcdsaSigCodec.rawToDer(sigRaw);
-            } catch (VeriLogFormatException e) {
-                return VerifyReport.fail(seq, "signature encoding invalid");
-            }
+            sigDer = convertToDer(sigRaw);
+            if (sigDer == null) return VerifyReport.fail(seq, "signature encoding invalid");
+            Signature verifier = getSignatureAlgorithm();
+            return verifySignature(verifier, pub, sigDer, entryHashBytes, seq);
 
-            Signature verifier;
-            try {
-                verifier = Signature.getInstance("SHA256withECDSA");
-            } catch (Exception e) {
-                throw new VeriLogCryptoException("crypto.signature_engine_unavailable", e);
-            }
-
-            try {
-                verifier.initVerify(pub);
-                verifier.update(entryHashBytes);
-                boolean ok = verifier.verify(sigDer);
-                return ok ? VerifyReport.success() : VerifyReport.fail(seq, "signature invalid");
-            } catch (Exception e) {
-                throw new VeriLogCryptoException("crypto.signature_verify_failed", e);
-            }
         } catch (RuntimeException e) {
             // Unexpected programming/runtime issue
             throw new VeriLogCryptoException("crypto.verifier_unexpected_error", e);
         }
     }
 
+
+
     // optional helper: verify chain (seq contiguous + prevHash)
     public static VerifyReport verifyChain(Iterator<? extends JsonNode> entries, PublicKey pub)
-            throws VeriLogCryptoException {
+            throws VeriLogCryptoException, VeriLogFormatException {
 
         Objects.requireNonNull(entries, "entries");
         Objects.requireNonNull(pub, "pub");
@@ -141,9 +125,49 @@ public final class Verifier {
             prevEntryHash = e.get(ENTRY_HASH).textValue();
             expectedSeq++;
         }
-
         return VerifyReport.success();
     }
+
+    private static VerifyReport verifySignature(Signature verifier, PublicKey pub, byte[] sigDer, byte[] entryHashBytes, long seq) throws VeriLogCryptoException {
+        try {
+            verifier.initVerify(pub);
+            verifier.update(entryHashBytes);
+            boolean ok = verifier.verify(sigDer);
+            return ok ? VerifyReport.success() : VerifyReport.fail(seq, "signature invalid");
+        } catch (Exception e) {
+            throw new VeriLogCryptoException("crypto.signature_verify_failed", e);
+        }
+    }
+
+    @SuppressWarnings("java:S1168")
+    private static byte[] convertToRaw(JsonNode signedEntry) {
+        JsonNode sigNode = signedEntry.get("sig");
+        String sigText = sigNode != null ? sigNode.textValue() : null;
+        if (sigText == null) return null;
+
+        try {
+            return Base64.getDecoder().decode(sigText);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+    @SuppressWarnings("java:S1168")
+    private static byte[] convertToDer(byte[] sigRaw) {
+        try {
+            return EcdsaSigCodec.rawToDer(sigRaw);
+        } catch (VeriLogFormatException e) {
+            return null;
+        }
+    }
+
+    private static Signature getSignatureAlgorithm() throws VeriLogCryptoException {
+        try {
+            return Signature.getInstance("SHA256withECDSA");
+        } catch (Exception e) {
+            throw new VeriLogCryptoException("crypto.signature_engine_unavailable", e);
+        }
+    }
+
 
     private static VerifyReport validateRequiredFields(JsonNode e) {
         if (!e.hasNonNull("seq") || !e.hasNonNull("prevHash")) {

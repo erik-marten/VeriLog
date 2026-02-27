@@ -20,27 +20,15 @@ import java.util.Base64;
 import java.util.Objects;
 
 public final class PemKeys {
-    private PemKeys() {}
+    private PemKeys() {
+    }
 
     public static PublicKey importEcPublicKeyFromPem(String pem) throws VeriLogFormatException, VeriLogCryptoException {
         Objects.requireNonNull(pem, "pem");
 
         try {
-            String b64 = pem
-                    .replace("-----BEGIN PUBLIC KEY-----", "")
-                    .replace("-----END PUBLIC KEY-----", "")
-                    .replaceAll("\\s+", "");
-
-            if (b64.isEmpty()) {
-                throw new VeriLogFormatException("format.pem.empty");
-            }
-
-            byte[] der;
-            try {
-                der = Base64.getDecoder().decode(b64);
-            } catch (IllegalArgumentException e) {
-                throw new VeriLogFormatException("format.pem.base64_invalid", e);
-            }
+            String b64 = replace(pem);
+            byte[] der = decode(b64);
 
             X509EncodedKeySpec spec = new X509EncodedKeySpec(der);
             return KeyFactory.getInstance("EC").generatePublic(spec);
@@ -54,5 +42,27 @@ public final class PemKeys {
             // invalid DER, wrong key type, etc.
             throw new VeriLogFormatException("format.pem.public_key_invalid", e);
         }
+    }
+
+    private static String replace(String pem) throws VeriLogFormatException {
+        String b64 = pem
+                .replace("-----BEGIN PUBLIC KEY-----", "")
+                .replace("-----END PUBLIC KEY-----", "")
+                .replaceAll("\\s+", "");
+
+        if (b64.isEmpty()) {
+            throw new VeriLogFormatException("format.pem.empty");
+        }
+        return b64;
+    }
+
+    private static byte[] decode(String b64) throws VeriLogFormatException {
+        byte[] der;
+        try {
+            der = Base64.getDecoder().decode(b64);
+        } catch (IllegalArgumentException e) {
+            throw new VeriLogFormatException("format.pem.base64_invalid", e);
+        }
+        return der;
     }
 }

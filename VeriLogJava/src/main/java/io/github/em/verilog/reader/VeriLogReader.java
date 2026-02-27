@@ -260,6 +260,7 @@ public final class VeriLogReader {
         return pub;
     }
 
+    @SuppressWarnings("java:S1168")
     private byte[] decodeSignatureOrFail(JsonNode signed) {
         try {
             return Base64.getDecoder().decode(signed.get("sig").asText());
@@ -346,7 +347,6 @@ public final class VeriLogReader {
     }
 
     private String canonicalizeWithout(JsonNode obj) throws VeriLogJsonException {
-        // Create a mutable copy as ObjectNode, remove fields, then canonicalize via CanonicalJson
         try {
             var copy = obj.deepCopy();
             if (copy.isObject()) {
@@ -355,10 +355,14 @@ public final class VeriLogReader {
                 }
             }
             return CanonicalJson.canonicalize(copy);
-        } catch (RuntimeException e) {
-            throw new VeriLogJsonException("json.canonicalize_failed", e);
+
         } catch (VeriLogCryptoException e) {
-            throw new RuntimeException(e);
+            // unexpected crypto failure during canonicalization
+            throw new VeriLogJsonException("json.canonicalize_failed", e);
+
+        } catch (RuntimeException e) {
+            // unexpected Jackson/runtime issue
+            throw new VeriLogJsonException("json.canonicalize_failed", e);
         }
     }
 }
