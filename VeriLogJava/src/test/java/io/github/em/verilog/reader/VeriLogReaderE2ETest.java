@@ -119,7 +119,7 @@ class VeriLogReaderE2ETest {
         ObjectNode unsigned = buildUnsignedEntry(1, "0".repeat(64), tm.keyIdHex, "evt", OM.createObjectNode().put("x", 1));
         SignedPayload sp = signEntry(unsigned, tm, true /*forceBadSig*/);
 
-        writeVlogFileRawEntries(file, "VeriLog|v1", tm.dek32, tm, new RawEntry(1, sp.json));
+        writeVlogFileRawEntries(file, "VeriLog|v1", tm.dek32, new RawEntry(1, sp.json));
 
         VeriLogReader r = new VeriLogReader();
         VerifyReport rep = r.verifyFile(file, tm.dek32, tm.keyResolver);
@@ -143,7 +143,7 @@ class VeriLogReaderE2ETest {
         ObjectNode u3 = buildUnsignedEntry(3, s1.entryHashHex, tm.keyIdHex, "evt3", OM.createObjectNode().put("x", 3));
         SignedPayload s3 = signEntry(u3, tm, false);
 
-        writeVlogFileRawEntries(file, "VeriLog|v1", tm.dek32, tm,
+        writeVlogFileRawEntries(file, "VeriLog|v1", tm.dek32,
                 new RawEntry(1, s1.json),
                 new RawEntry(3, s3.json)
         );
@@ -265,7 +265,7 @@ class VeriLogReaderE2ETest {
             prevHash = sp.entryHashHex;
         }
 
-        writeVlogFileRawEntries(out, aadPrefix, dek32, tm, raws);
+        writeVlogFileRawEntries(out, aadPrefix, dek32, raws);
     }
 
     private static void writeVlogFile(Path out,
@@ -288,7 +288,6 @@ class VeriLogReaderE2ETest {
     private static void writeVlogFileRawEntries(Path out,
                                                 String aadPrefix,
                                                 byte[] dek32,
-                                                TestMaterial tm,
                                                 RawEntry... entries) throws Exception {
 
         byte[] headerJson = OM.createObjectNode()

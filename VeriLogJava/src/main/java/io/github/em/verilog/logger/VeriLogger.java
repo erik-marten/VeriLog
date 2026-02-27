@@ -59,6 +59,7 @@ public final class VeriLogger implements Closeable {
                     // Best-effort close with Timeout
                     close(cfg.shutdownTimeoutMs);
                 } catch (Throwable ignored) {
+                    // Shutdown hook must be best-effort- ignore failures during JVM shutdown.
                 }
             }, "verilog-shutdown-hook");
 

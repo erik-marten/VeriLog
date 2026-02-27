@@ -1,11 +1,14 @@
 package io.github.em.verilog.logger;
 
 import io.github.em.verilog.errors.VeriLogIoException;
+import io.github.em.verilog.io.FramedLogFile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedStatic;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.file.*;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -19,8 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Answers.CALLS_REAL_METHODS;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.*;
 
 final class LogWriterTest {
 
@@ -185,7 +187,119 @@ final class LogWriterTest {
             assertTrue(ex.getCause() instanceof IOException);
         }
     }
+
+    @Test
+    void closeAndSignalTermination_should_countDown_even_if_close_throws() throws Exception {
+        var queue = new LinkedBlockingQueue<LogEvent>();
+        var closed = new AtomicBoolean(false);
+        var faulted = new AtomicBoolean(false);
+        var terminated = new CountDownLatch(1);
+
+        var cfg = newConfig(tmp);
+        var writer = new LogWriter(cfg, queue, new LoggerMetrics(), closed, faulted, terminated);
+
+        // Replace private 'file' with a mock that throws on close
+        FramedLogFile mockFile = mock(FramedLogFile.class);
+        doThrow(new RuntimeException("close boom")).when(mockFile).close();
+        setPrivateField(writer, "file", mockFile);
+
+        // Invoke private closeAndSignalTermination()
+        Method m = LogWriter.class.getDeclaredMethod("closeAndSignalTermination");
+        m.setAccessible(true);
+        m.invoke(writer);
+
+        // The key assertion: finally block counted down even though close threw
+        assertTrue(terminated.await(200, TimeUnit.MILLISECONDS), "terminated must be counted down in finally");
+    }
+
+    @Test
+    void flushAndCloseBestEffort_should_close_even_if_flush_throws_and_swallow_exceptions() throws Exception {
+        var queue = new LinkedBlockingQueue<LogEvent>();
+        var closed = new AtomicBoolean(false);
+        var faulted = new AtomicBoolean(false);
+        var terminated = new CountDownLatch(1);
+
+        var cfg = newConfig(tmp);
+        var writer = new LogWriter(cfg, queue, new LoggerMetrics(), closed, faulted, terminated);
+
+        FramedLogFile mockFile = mock(FramedLogFile.class);
+        doThrow(new IOException("flush boom")).when(mockFile).flush(true);
+        // close succeeds (or also make it throw to cover that catch too)
+         doThrow(new IOException("close boom")).when(mockFile).close();
+        setPrivateField(writer, "file", mockFile);
+        assertDoesNotThrow(writer::flushAndCloseBestEffort);
+
+        // Even though flush threw, close should still be attempted
+        verify(mockFile, times(1)).flush(true);
+        verify(mockFile, times(1)).close();
+    }
+
+    @Test
+    void writeOne_should_throw_if_file_is_null() throws Exception {
+        var queue = new LinkedBlockingQueue<LogEvent>();
+        var closed = new AtomicBoolean(false);
+        var faulted = new AtomicBoolean(false);
+        var terminated = new CountDownLatch(1);
+
+        var cfg = newConfig(tmp);
+        var writer = new LogWriter(cfg, queue, new LoggerMetrics(), closed, faulted, terminated);
+
+        // Force the snapshot branch to see f == null
+        setPrivateField(writer, "file", null);
+
+        Method writeOne = LogWriter.class.getDeclaredMethod("writeOne", LogEvent.class);
+        writeOne.setAccessible(true);
+
+        var ev = new LogEvent(VeriLoggerConfig.Level.INFO, "hello", Map.of(), Instant.now());
+
+        Exception ex = assertThrows(Exception.class, () -> writeOne.invoke(writer, ev));
+        // Reflection wraps the real exception
+        Throwable cause = ex.getCause();
+        assertTrue(cause instanceof IOException);
+        assertEquals("Log file is not open", cause.getMessage());
+    }
+
+    @Test
+    void writeOne_should_set_faulted_flush_and_rethrow_when_append_throws_ioexception() throws Exception {
+        var queue = new LinkedBlockingQueue<LogEvent>();
+        var closed = new AtomicBoolean(false);
+        var faulted = new AtomicBoolean(false);
+        var terminated = new CountDownLatch(1);
+
+        var cfg = newConfig(tmp);
+        var writer = new LogWriter(cfg, queue, new LoggerMetrics(), closed, faulted, terminated);
+
+        FramedLogFile mockFile = mock(FramedLogFile.class);
+
+        IOException boom = new IOException("append boom");
+        doThrow(boom).when(mockFile).appendEncryptedJson(anyByte(), anyLong(), any(byte[].class));
+        // bestEffortFlush should call flush(true)
+        // (let flush succeed or throw- either way it’s swallowed by bestEffortFlush)
+         doThrow(new IOException("flush boom")).when(mockFile).flush(true);
+        setPrivateField(writer, "file", mockFile);
+
+        Method writeOne = LogWriter.class.getDeclaredMethod("writeOne", LogEvent.class);
+        writeOne.setAccessible(true);
+
+        var ev = new LogEvent(VeriLoggerConfig.Level.INFO, "hello", Map.of(), Instant.now());
+
+        Exception ex = assertThrows(Exception.class, () -> writeOne.invoke(writer, ev));
+        Throwable cause = ex.getCause();
+
+        // It should rethrow the SAME IOException instance (not wrap it)
+        assertSame(boom, cause);
+
+        assertTrue(faulted.get(), "faulted must be set on IOException path");
+        verify(mockFile, times(1)).flush(true);
+    }
+
     // ---- helpers ----
+
+    private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {
+        Field f = target.getClass().getDeclaredField(fieldName);
+        f.setAccessible(true);
+        f.set(target, value);
+    }
 
     private VeriLoggerConfig newConfig(Path dir) throws Exception {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");

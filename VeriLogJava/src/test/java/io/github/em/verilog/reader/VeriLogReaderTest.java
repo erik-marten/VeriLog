@@ -30,6 +30,7 @@ public class VeriLogReaderTest {
     private byte[] dek32;
     private PublicKeyResolver resolver;
     private static final ObjectMapper OM = new ObjectMapper();
+
     @BeforeEach
     void setup() {
         reader = new VeriLogReader();
@@ -135,8 +136,7 @@ public class VeriLogReaderTest {
     @Test
     void should_wrap_ioexception_as_io_read_failed() throws Exception {
         Path path = Path.of("dummy.vlog");
-        byte[] dek32 = new byte[32];
-        PublicKeyResolver resolver = mock(PublicKeyResolver.class);
+        resolver = mock(PublicKeyResolver.class);
 
         byte[] headerJson = "{\"aad\":\"VeriLog|v1\"}".getBytes(StandardCharsets.UTF_8);
 
@@ -149,8 +149,6 @@ public class VeriLogReaderTest {
                                  .when(mock)
                                  .positionAtFirstFrame();
                      })) {
-
-            VeriLogReader reader = new VeriLogReader();
 
             VeriLogIoException ex = assertThrows(
                     VeriLogIoException.class,
@@ -166,8 +164,7 @@ public class VeriLogReaderTest {
     @Test
     void should_throw_when_header_empty() throws Exception {
         Path path = Path.of("dummy.vlog");
-        byte[] dek32 = new byte[32];
-        PublicKeyResolver resolver = mock(PublicKeyResolver.class);
+        resolver = mock(PublicKeyResolver.class);
 
         try (MockedConstruction<FramedFileReader> mocked =
                      mockConstruction(FramedFileReader.class, (mock, context) -> {
@@ -175,9 +172,6 @@ public class VeriLogReaderTest {
                                  .when(mock)
                                  .positionAtFirstFrame();
                      })) {
-
-            VeriLogReader reader = new VeriLogReader();
-
             VeriLogFormatException ex = assertThrows(
                     VeriLogFormatException.class,
                     () -> reader.verifyFile(path, dek32, resolver, false)
@@ -199,9 +193,6 @@ public class VeriLogReaderTest {
         // signed.put("sig", "..."); // missing
 
         Frame f = new Frame((byte) 1, 1L, new byte[24], new byte[0]);
-
-        VeriLogReader reader = new VeriLogReader();
-
         VerifyReport r = invokeVerifyRequiredFields(reader, signed, f);
 
         assertNotNull(r);
@@ -213,8 +204,6 @@ public class VeriLogReaderTest {
     @Test
     void should_wrap_files_list_ioexception_as_io_read_failed() throws Exception {
         Path dir = Path.of("dummy-dir");
-        var reader = new VeriLogReader();
-
         try (MockedStatic<Files> files = mockStatic(Files.class)) {
             files.when(() -> Files.list(dir)).thenThrow(new IOException("boom"));
 
@@ -230,8 +219,6 @@ public class VeriLogReaderTest {
 
     @Test
     void should_wrap_runtimeexception_as_json_canonicalize_failed() throws Exception {
-        VeriLogReader reader = new VeriLogReader();
-
         JsonNode node = mock(JsonNode.class);
         when(node.deepCopy()).thenThrow(new RuntimeException("boom"));
 
@@ -256,8 +243,8 @@ public class VeriLogReaderTest {
 
     @ParameterizedTest
     @MethodSource("provideNullValues")
-    void should_throw_when_param_is_null(Path path, byte[] dek32, PublicKeyResolver publicKeyResolver){
-            assertThrows(NullPointerException.class, () -> reader.verifyDirectory(path, dek32, publicKeyResolver));
+    void should_throw_when_param_is_null(Path path, byte[] dek32, PublicKeyResolver publicKeyResolver) {
+        assertThrows(NullPointerException.class, () -> reader.verifyDirectory(path, dek32, publicKeyResolver));
     }
 
     @ParameterizedTest
@@ -272,8 +259,6 @@ public class VeriLogReaderTest {
         }
 
         Frame f = new Frame((byte) 1, 7L, new byte[24], new byte[0]);
-        VeriLogReader reader = new VeriLogReader();
-
         VerifyReport r = invokeVerifyRequiredFields(reader, signed, f);
 
         assertNotNull(r);
@@ -282,7 +267,7 @@ public class VeriLogReaderTest {
         assertTrue(r.reason.contains("missing required fields"));
     }
 
-    private static Stream<Arguments> provideNullValues(){
+    private static Stream<Arguments> provideNullValues() {
         PublicKeyResolver resolver = mock(PublicKeyResolver.class);
         Path path = Path.of("dummy.vlog");
         return Stream.of(

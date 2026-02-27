@@ -30,7 +30,6 @@ public final class FramedLogFile implements Closeable {
     private static final byte[] MAGIC = new byte[]{'V', 'L', 'O', 'G'};
     private static final int FIXED_HEADER_LEN = 4 + 1 + 1 + 2; // magic + version + flags + headerLen
 
-    private final Path path;
     private final FileChannel ch;
     private final SecureRandom rng;
     private final byte[] dek32;
@@ -86,7 +85,6 @@ public final class FramedLogFile implements Closeable {
 
     private FramedLogFile(Path path, FileChannel ch, SecureRandom rng, byte[] dek32, String aad) {
         if (dek32 == null || dek32.length != 32) throw new IllegalArgumentException("DEK must be 32 bytes");
-        this.path = path;
         this.ch = ch;
         this.rng = rng;
         this.dek32 = dek32.clone();
@@ -179,7 +177,7 @@ public final class FramedLogFile implements Closeable {
 
     private void truncateToLastFullFrame() throws IOException {
         long size = ch.size();
-        long pos = FIXED_HEADER_LEN;
+        long pos;
 
         // read headerLen to jump correctly
         ch.position(4 + 1 + 1);

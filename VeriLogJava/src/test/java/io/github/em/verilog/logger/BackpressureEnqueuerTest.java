@@ -42,7 +42,10 @@ class BackpressureEnqueuerTest {
             try {
                 Thread.sleep(80);
                 q.take();
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("Drainer thread interrupted unexpectedly", e);
+            }
         });
         drainer.start();
 
