@@ -293,6 +293,43 @@ final class LogWriterTest {
         verify(mockFile, times(1)).flush(true);
     }
 
+    @Test
+    void pollEvent_should_return_poison_and_preserve_interrupt_when_interrupted() throws Exception {
+        var queue = new LinkedBlockingQueue<LogEvent>();
+        var closed = new AtomicBoolean(false);
+        var faulted = new AtomicBoolean(false);
+        var terminated = new CountDownLatch(1);
+
+        var cfg = newConfig(tmp);
+        var writer = new LogWriter(cfg, queue, new LoggerMetrics(), closed, faulted, terminated);
+
+        Method pollEvent = LogWriter.class.getDeclaredMethod("pollEvent");
+        pollEvent.setAccessible(true);
+
+        var resultRef = new java.util.concurrent.atomic.AtomicReference<LogEvent>();
+        var interruptedAfter = new AtomicBoolean(false);
+        var done = new CountDownLatch(1);
+
+        Thread t = new Thread(() -> {
+            try {
+                Thread.currentThread().interrupt(); // force queue.poll(...) to throw InterruptedException
+                LogEvent ev = (LogEvent) pollEvent.invoke(writer);
+                resultRef.set(ev);
+                interruptedAfter.set(Thread.currentThread().isInterrupted()); // should be true (re-interrupted)
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            } finally {
+                done.countDown();
+            }
+        }, "pollEvent-interrupt-test");
+
+        t.start();
+        assertTrue(done.await(1, TimeUnit.SECONDS), "thread should finish");
+
+        assertSame(LogEvent.POISON, resultRef.get(), "Interrupted poll should return POISON");
+        assertTrue(interruptedAfter.get(), "pollEvent should re-interrupt the thread");
+    }
+
     // ---- helpers ----
 
     private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {

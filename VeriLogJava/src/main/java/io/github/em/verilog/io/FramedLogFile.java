@@ -202,9 +202,6 @@ public final class FramedLogFile implements Closeable {
         ch.position(pos);
 
         ByteBuffer lenBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
-
-        boolean done = false;
-
         while (true) {
             lenBuf.clear();
             int r = ch.read(lenBuf);

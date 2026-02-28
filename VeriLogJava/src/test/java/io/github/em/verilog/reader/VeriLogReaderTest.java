@@ -3,10 +3,7 @@ package io.github.em.verilog.reader;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.github.em.verilog.errors.VeriLogException;
-import io.github.em.verilog.errors.VeriLogFormatException;
-import io.github.em.verilog.errors.VeriLogIoException;
-import io.github.em.verilog.errors.VeriLogJsonException;
+import io.github.em.verilog.errors.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -239,6 +236,35 @@ public class VeriLogReaderTest {
         assertEquals("json.canonicalize_failed", ex.getMessageKey());
         assertNotNull(ex.getCause());
         assertEquals("boom", ex.getCause().getMessage());
+    }
+
+    @Test
+    void should_wrap_crypto_exception_from_verifier_as_crypto_verify_failed_with_seq_context() throws Exception {
+        var tm = TestFiles.material();
+        Path file = TestFiles.tamperedSignature(); // reaches verifyEntryHashSig() call
+
+        // Force the static verifier to throw a crypto exception (unexpected crypto/provider failure)
+        try (MockedStatic<BcEcdsaVerifier> mocked = mockStatic(BcEcdsaVerifier.class)) {
+            mocked.when(() -> BcEcdsaVerifier.verifyEntryHashSig(
+                            any(),               // ECPublicKeyParameters
+                            any(byte[].class),   // entryHashBytes
+                            any(byte[].class)    // sigRaw
+                    ))
+                    .thenThrow(new VeriLogCryptoException("crypto.sig_encode_failed"));
+
+            // Act
+            VeriLogCryptoException ex = assertThrows(
+                    VeriLogCryptoException.class,
+                    () -> reader.verifyFile(file, tm.dek32, tm.keyResolver)
+            );
+
+            assertEquals("crypto.verify_failed", ex.getMessageKey());
+            // preserve the original crypto failure as the cause
+            assertNotNull(ex.getCause());
+            assertTrue(ex.getCause() instanceof VeriLogCryptoException);
+            assertEquals("crypto.sig_encode_failed", ((VeriLogCryptoException) ex.getCause()).getMessageKey());
+            assertArrayEquals(new Object[]{"seq", "1"}, ex.getMessageArgs());
+        }
     }
 
     @ParameterizedTest
