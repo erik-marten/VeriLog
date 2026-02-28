@@ -24,10 +24,10 @@ final class BackpressureEnqueuer {
 
     boolean enqueue(LogEvent ev) {
         try {
-            long timeoutMs = cfg.offerTimeoutMs;
+            long timeoutMs = cfg.getOfferTimeoutMs();
             boolean mustWait =
-                    cfg.backpressureMode != VeriLoggerConfig.BackpressureMode.DROP ||
-                            (cfg.preferReliabilityForWarnError &&
+                    cfg.getBackpressureMode() != VeriLoggerConfig.BackpressureMode.DROP ||
+                            (cfg.isPreferReliabilityForWarnError() &&
                                     (ev.level == VeriLoggerConfig.Level.WARN || ev.level == VeriLoggerConfig.Level.ERROR));
 
             return mustWait

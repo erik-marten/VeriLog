@@ -15,13 +15,12 @@ import io.github.em.verilog.errors.VeriLogCryptoException;
 import io.github.em.verilog.errors.VeriLogIoException;
 import io.github.em.verilog.io.FramedLogFile;
 
-import java.util.concurrent.CountDownLatch;
-
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -64,21 +63,21 @@ final class LogWriter implements Runnable {
         this.closed = closed;
         this.faulted = faulted;
 
-        this.flushPolicy = new FlushPolicy(cfg.flushEveryN, cfg.flushEveryMs, cfg.fsyncOnFlush);
-        this.rotationPolicy = new RotationPolicy(cfg.rotateBytes, cfg.filePrefix);
+        this.flushPolicy = new FlushPolicy(cfg.getFlushEveryN(), cfg.getFlushEveryMs(), cfg.isFsyncOnFlush());
+        this.rotationPolicy = new RotationPolicy(cfg.getRotateBytes(), cfg.getFilePrefix());
         this.terminated = terminated;
 
         try {
             Path current = currentPath();
-            Files.createDirectories(cfg.logDir);
+            Files.createDirectories(cfg.getLogDir());
 
-            if (cfg.rotateOnStartup && Files.exists(current) && Files.size(current) > 0) {
+            if (cfg.isRotateOnStartup() && Files.exists(current) && Files.size(current) > 0) {
                 rotateExistingOnStartup(current);
             }
 
 // Create file with 0600 only if it doesn't exist yet (POSIX only)
             ensureFileExistsWith0600IfPossible(current);
-            this.file = FramedLogFile.openOrCreate(current, cfg.encryptionKey32, cfg.aadPrefix);
+            this.file = FramedLogFile.openOrCreate(current, cfg.getEncryptionKey(), cfg.getAadPrefix());
             this.bytesWrittenCurrent = Files.exists(current) ? Files.size(current) : 0;
             this.lastFlushMs = System.currentTimeMillis();
         } catch (IOException e) {
@@ -194,8 +193,8 @@ final class LogWriter implements Runnable {
         try {
             byte[] signedEntryJson = signedFactory.buildSignedEntryJsonUtf8(
                     chain,
-                    cfg.signer,
-                    cfg.actor,
+                    cfg.getSigner(),
+                    cfg.getActor(),
                     ev.level.name(),
                     Map.of(
                             "msg", ev.message,
@@ -248,11 +247,11 @@ final class LogWriter implements Runnable {
             file.close();
 
             Path current = currentPath();
-            Path rotated = rotationPolicy.rotatedPath(cfg.logDir);
+            Path rotated = rotationPolicy.rotatedPath(cfg.getLogDir());
 
             moveAtomicOrReplace(current, rotated);
 
-            this.file = FramedLogFile.openOrCreate(current, cfg.encryptionKey32, cfg.aadPrefix);
+            this.file = FramedLogFile.openOrCreate(current, cfg.getEncryptionKey(), cfg.getAadPrefix());
             this.bytesWrittenCurrent = Files.size(current);
             this.sinceFlush = 0;
             this.lastFlushMs = System.currentTimeMillis();
@@ -263,7 +262,7 @@ final class LogWriter implements Runnable {
     }
 
     private void rotateExistingOnStartup(Path current) throws IOException {
-        Path rotated = rotationPolicy.rotatedPath(cfg.logDir);
+        Path rotated = rotationPolicy.rotatedPath(cfg.getLogDir());
         moveAtomicOrReplace(current, rotated);
     }
 
@@ -282,7 +281,7 @@ final class LogWriter implements Runnable {
     }
 
     private Path currentPath() {
-        return cfg.logDir.resolve(cfg.currentFileName);
+        return cfg.getLogDir().resolve(cfg.getCurrentFileName());
     }
 
     private long estimateFrameBytes(int plaintextLen) {

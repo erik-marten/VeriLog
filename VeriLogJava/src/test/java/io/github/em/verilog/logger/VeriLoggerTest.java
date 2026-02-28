@@ -1,10 +1,13 @@
 package io.github.em.verilog.logger;
 
+import io.github.em.verilog.logger.utils.TestConfigBuilder;
 import io.github.em.verilog.sign.LogSigner;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.*;
-import java.security.SecureRandom;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.Map;
 
@@ -16,11 +19,12 @@ class VeriLoggerTest {
     void should_write_events_when_logging_and_should_not_throw_when_logging_after_close() throws Exception {
         Path dir = Files.createTempDirectory("verilog-logger-test");
 
-        VeriLoggerConfig cfg = baseCfg(dir);
-        cfg.queueCapacity = 128;
-        cfg.flushEveryN = 1;     // flush frequently for tests
-        cfg.flushEveryMs = 10;
-        cfg.rotateOnStartup = true;
+        VeriLoggerConfig cfg =
+                TestConfigBuilder.configBuilder(dir)
+                        .queueCapacity(1) // flush frequently for tests
+                        .flushEveryMs(10)
+                        .rotateOnStartup(true)
+                        .build();
 
         try (VeriLogger logger = VeriLogger.create(cfg)) {
             for (int i = 0; i < 50; i++) {
@@ -46,13 +50,13 @@ class VeriLoggerTest {
     void should_drop_some_events_when_queue_capacity_is_small_and_mode_is_drop_under_high_load() throws Exception {
         Path dir = Files.createTempDirectory("verilog-logger-drop");
 
-        VeriLoggerConfig cfg = baseCfg(dir);
-        cfg.backpressureMode = VeriLoggerConfig.BackpressureMode.DROP;
-        cfg.offerTimeoutMs = 0;
-        cfg.queueCapacity = 1;      // tiny to force drops
-        cfg.flushEveryN = 1000;
-        cfg.flushEveryMs = 1000;
-
+        VeriLoggerConfig cfg = TestConfigBuilder.configBuilder(dir)
+                .backpressureMode(VeriLoggerConfig.BackpressureMode.DROP)
+                .offerTimeoutMs(0)
+                .queueCapacity(1)
+                .flushEveryN(1000)
+                .flushEveryMs(1000)
+                .build();
         try (VeriLogger logger = VeriLogger.create(cfg)) {
             // Burst a lot of events quickly
             for (int i = 0; i < 50_000; i++) {
@@ -73,11 +77,13 @@ class VeriLoggerTest {
         // create a non-empty "current.vlog"
         Files.write(current, new byte[]{1, 2, 3}, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
-        VeriLoggerConfig cfg = baseCfg(dir);
-        cfg.currentFileName = "current.vlog";
-        cfg.rotateOnStartup = true;
-        cfg.flushEveryN = 1;
-        cfg.flushEveryMs = 10;
+        VeriLoggerConfig cfg = TestConfigBuilder.configBuilder(dir)
+                .currentFileName("current.vlog")
+                .rotateOnStartup(true)
+                .flushEveryMs(10)
+                .flushEveryN(10)
+                .build();
+
 
         try (VeriLogger logger = VeriLogger.create(cfg)) {
             logger.info("post-rotate");
@@ -85,7 +91,7 @@ class VeriLoggerTest {
         }
 
         // rotated file should exist (prefix + timestamp)
-        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, cfg.filePrefix + "-*.vlog")) {
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, cfg.getFilePrefix() + "-*.vlog")) {
             boolean found = false;
             for (Path p : ds) {
                 found = true;
@@ -100,12 +106,13 @@ class VeriLoggerTest {
     void should_throw_illegal_state_when_writer_faults_and_fault_mode_is_fail_fast() throws Exception {
         Path dir = Files.createTempDirectory("verilog-logger-fault");
 
-        VeriLoggerConfig cfg = baseCfg(dir);
-        cfg.faultMode = VeriLoggerConfig.FaultMode.FAIL_FAST;
-        cfg.signer = new ThrowingSigner(); // writer will fault when it tries to sign
-        cfg.queueCapacity = 64;
-        cfg.flushEveryN = 1;
-        cfg.flushEveryMs = 10;
+        VeriLoggerConfig cfg = TestConfigBuilder.configBuilder(dir)
+                .faultMode(VeriLoggerConfig.FaultMode.FAIL_FAST)
+                .signer(new ThrowingSigner())// writer will fault when it tries to sign
+                .queueCapacity(64)
+                .flushEveryN(1)
+                .flushEveryMs(10)
+                .build();
 
         try (VeriLogger logger = VeriLogger.create(cfg)) {
             // enqueue something that will fault the writer when processed
@@ -127,21 +134,18 @@ class VeriLoggerTest {
 
     // -------- helpers --------
 
-    private static VeriLoggerConfig baseCfg(Path dir) {
-        VeriLoggerConfig cfg = new VeriLoggerConfig();
-        cfg.logDir = dir;
-        cfg.filePrefix = "app";
-        cfg.currentFileName = "current.vlog";
-        cfg.actor = "test";
-
-        byte[] dek = new byte[32];
-        new SecureRandom().nextBytes(dek);
-        cfg.encryptionKey32 = dek;
-
-        cfg.signer = new TestSigner();
-        // Keep default rotateBytes >= 1MB to satisfy validate()
-        return cfg;
-    }
+//    private static VeriLoggerConfig.Builder baseCfg(Path dir) throws Exception {
+//        byte[] dek = new byte[32];
+//        new SecureRandom().nextBytes(dek);
+//
+//        VeriLoggerConfig cfg = TestConfigBuilder.configBuilder(dir)
+//                .filePrefix("app")
+//                .currentFileName("current.vlog")
+//                .actor("test")
+//                .encryptionKey(dek)
+//                .signer(new TestSigner());
+//        return cfg;
+//    }
 
     private static void waitUntil(BooleanSupplier condition, Duration timeout) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
@@ -157,9 +161,13 @@ class VeriLoggerTest {
     }
 
     private static final class TestSigner implements LogSigner {
-        @Override public String keyId() { return "test-key"; }
+        @Override
+        public String keyId() {
+            return "test-key";
+        }
 
-        @Override public byte[] signEntryHash(byte[] entryHash32) {
+        @Override
+        public byte[] signEntryHash(byte[] entryHash32) {
             // produce deterministic 64 bytes (NOT a real signature- sufficient for writer path)
             byte[] out = new byte[64];
             for (int i = 0; i < out.length; i++) {
@@ -170,8 +178,13 @@ class VeriLoggerTest {
     }
 
     private static final class ThrowingSigner implements LogSigner {
-        @Override public String keyId() { return "throwing-key"; }
-        @Override public byte[] signEntryHash(byte[] entryHash32) {
+        @Override
+        public String keyId() {
+            return "throwing-key";
+        }
+
+        @Override
+        public byte[] signEntryHash(byte[] entryHash32) {
             throw new RuntimeException("boom");
         }
     }

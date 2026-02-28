@@ -16,7 +16,10 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.*;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class VeriLogger implements Closeable {
@@ -43,7 +46,7 @@ public final class VeriLogger implements Closeable {
         cfg.validate();
         this.cfg = cfg;
 
-        this.queue = new ArrayBlockingQueue<>(cfg.queueCapacity);
+        this.queue = new ArrayBlockingQueue<>(cfg.getQueueCapacity());
         this.enqueuer = new BackpressureEnqueuer(cfg, queue);
 
         this.writer = new LogWriter(cfg, queue, metrics, closed, faulted, terminated);
@@ -52,11 +55,11 @@ public final class VeriLogger implements Closeable {
         this.writerThread.setDaemon(false);
         this.writerThread.start();
 
-        if (cfg.installShutdownHook) {
+        if (cfg.isInstallShutdownHook()) {
             this.shutdownHook = new Thread(() -> {
                 try {
                     // Best-effort close with Timeout
-                    close(cfg.shutdownTimeoutMs);
+                    close(cfg.getShutdownTimeoutMs());
                 } catch (Throwable ignored) {
                     // Shutdown hook must be best-effort- ignore failures during JVM shutdown.
                     // Should not be blocked due to logging cleanup.
@@ -92,7 +95,7 @@ public final class VeriLogger implements Closeable {
 
         if (closed.get()) return;
 
-        if (faulted.get() && cfg.faultMode == VeriLoggerConfig.FaultMode.FAIL_FAST) {
+        if (faulted.get() && cfg.getFaultMode() == VeriLoggerConfig.FaultMode.FAIL_FAST) {
             throw new IllegalStateException("VeriLogger is faulted; refusing to accept logs.");
         }
         if (faulted.get()) {
@@ -115,7 +118,7 @@ public final class VeriLogger implements Closeable {
 
     @Override
     public void close() throws IOException {
-        close(cfg.shutdownTimeoutMs);
+        close(cfg.getShutdownTimeoutMs());
     }
 
     public void close(long timeoutMs) throws IOException {
