@@ -1,0 +1,29 @@
+name: Refactoring
+description: Technical debt or code improvement
+labels: ["refactoring"]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why is this refactoring necessary?
+      placeholder: Sonar issue, maintainability concern, duplication, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope of Change
+      description: What files/classes are affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      placeholder: |
+        - [ ] Sonar issue resolved
+        - [ ] Tests updated
+        - [ ] Coverage >= 80%

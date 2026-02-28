@@ -1,0 +1,30 @@
+name: Security Issue
+description: Report a security vulnerability
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a critical vulnerability, please do NOT disclose it publicly.
+        Consider reporting it privately.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Vulnerability Description
+      description: Describe the security concern.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Potential Impact
+      description: What could an attacker achieve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Suggested Fix
