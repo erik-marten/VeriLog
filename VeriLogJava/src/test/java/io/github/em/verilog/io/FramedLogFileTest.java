@@ -10,6 +10,9 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedConstruction;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -147,6 +150,118 @@ public class FramedLogFileTest {
             throw new RuntimeException(e);
         } catch (VeriLogFormatException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    @Test
+    void should_throw_when_dek_is_null() {
+        Path file = tempDir.resolve("log.vlog");
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> FramedLogFile.openOrCreate(file, null, "aad")
+        );
+
+        assertEquals("DEK must be 32 bytes", ex.getMessage());
+    }
+
+    @Test
+    void should_throw_when_dek_length_is_not_32() {
+        Path file = tempDir.resolve("log.vlog");
+
+        byte[] wrongDek = new byte[16]; // invalid length
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> FramedLogFile.openOrCreate(file, wrongDek, "aad")
+        );
+
+        assertEquals("DEK must be 32 bytes", ex.getMessage());
+    }
+
+    @Test
+    void should_handle_eof_without_frames() throws Exception {
+        Path file = tempDir.resolve("empty-after-header.vlog");
+
+        byte[] dek = new byte[32];
+
+        // Create file (writes only header)
+        try (FramedLogFile f = FramedLogFile.openOrCreate(file, dek, "aad")) {
+            // no frames appended
+        }
+
+        // Reopen → scanNextSeq() sees EOF immediately
+        try (FramedLogFile f2 = FramedLogFile.openOrCreate(file, dek, "aad")) {
+            assertEquals(1, f2.nextSeq());
+        }
+    }
+
+    @Test
+    void should_handle_partial_length_prefix() throws Exception {
+        Path file = tempDir.resolve("partial-length.vlog");
+
+        byte[] dek = new byte[32];
+
+        try (FramedLogFile f = FramedLogFile.openOrCreate(file, dek, "aad")) {
+            f.appendEncryptedJson(FramedLogFile.TYPE_LOG, 1, "{\"a\":1}".getBytes());
+            f.flush(true);
+        }
+
+        // Corrupt: leave only 2 bytes of a new length prefix
+        try (var ch = FileChannel.open(file, StandardOpenOption.WRITE)) {
+            ch.position(ch.size());
+            ch.write(ByteBuffer.wrap(new byte[]{0x00, 0x01})); // only 2 bytes
+        }
+
+        // Reopen triggers scanNextSeq -> r < 4
+        try (FramedLogFile f2 = FramedLogFile.openOrCreate(file, dek, "aad")) {
+            assertEquals(2, f2.nextSeq());
+        }
+    }
+
+    @Test
+    void should_break_on_payload_too_small() throws Exception {
+        Path file = tempDir.resolve("payload-too-small.vlog");
+        byte[] dek = new byte[32];
+
+        // Create valid file (header only)
+        try (FramedLogFile f = FramedLogFile.openOrCreate(file, dek, "aad")) {
+            // no frames
+        }
+
+        // Append invalid length prefix (payloadLen = 5 < 9)
+        try (var ch = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+            ByteBuffer buf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
+            buf.putInt(5);  // invalid payload length
+            buf.flip();
+            ch.write(buf);
+        }
+
+        // Reopen → scanNextSeq() should break
+        try (FramedLogFile f2 = FramedLogFile.openOrCreate(file, dek, "aad")) {
+            assertEquals(1, f2.nextSeq()); // no valid frames found
+        }
+    }
+
+    @Test
+    void should_break_on_payload_too_large() throws Exception {
+        Path file = tempDir.resolve("payload-too-large.vlog");
+        byte[] dek = new byte[32];
+
+        try (FramedLogFile f = FramedLogFile.openOrCreate(file, dek, "aad")) {
+            // no frames
+        }
+
+        // Append insane payload length (100 MB)
+        try (var ch = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+            ByteBuffer buf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
+            buf.putInt(100 * 1024 * 1024); // 100 MB > MAX_PAYLOAD_LEN
+            buf.flip();
+            ch.write(buf);
+        }
+
+        try (FramedLogFile f2 = FramedLogFile.openOrCreate(file, dek, "aad")) {
+            assertEquals(1, f2.nextSeq());
         }
     }
 }

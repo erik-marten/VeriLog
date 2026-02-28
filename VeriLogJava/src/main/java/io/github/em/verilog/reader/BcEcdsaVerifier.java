@@ -24,7 +24,7 @@ import java.math.BigInteger;
 import java.util.Objects;
 
 public final class BcEcdsaVerifier {
-    static org.bouncycastle.crypto.signers.DSAEncoding DSA_ENCODING = StandardDSAEncoding.INSTANCE;
+    static org.bouncycastle.crypto.signers.DSAEncoding dsaEncoding = StandardDSAEncoding.INSTANCE;
 
     private BcEcdsaVerifier() {
     }
@@ -65,7 +65,7 @@ public final class BcEcdsaVerifier {
 
         final BigInteger[] rs;
         try {
-            rs = DSA_ENCODING.decode(pub.getParameters().getN(), der);
+            rs = dsaEncoding.decode(pub.getParameters().getN(), der);
         } catch (IOException | IllegalArgumentException e) {
             // Malformed DER signature
             return false;

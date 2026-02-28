@@ -13,7 +13,6 @@ import io.github.em.verilog.errors.VeriLogIoException;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;

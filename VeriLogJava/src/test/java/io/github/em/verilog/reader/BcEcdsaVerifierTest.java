@@ -14,11 +14,11 @@ import static org.mockito.Mockito.*;
 
 class BcEcdsaVerifierTest {
 
-    private final DSAEncoding original = BcEcdsaVerifier.DSA_ENCODING;
+    private final DSAEncoding original = BcEcdsaVerifier.dsaEncoding;
 
     @AfterEach
     void restoreEncoding() {
-        BcEcdsaVerifier.DSA_ENCODING = original;
+        BcEcdsaVerifier.dsaEncoding = original;
     }
 
     @Test
@@ -34,7 +34,7 @@ class BcEcdsaVerifierTest {
         when(encoding.decode(any(BigInteger.class), any(byte[].class)))
                 .thenThrow(new IOException("boom"));
 
-        BcEcdsaVerifier.DSA_ENCODING = encoding;
+        BcEcdsaVerifier.dsaEncoding = encoding;
 
         // Act
         boolean ok = BcEcdsaVerifier.verifyEntryHashSig(pub, entryHash32, sigRaw64);
@@ -56,7 +56,7 @@ class BcEcdsaVerifierTest {
         when(encoding.decode(any(BigInteger.class), any(byte[].class)))
                 .thenThrow(new RuntimeException("boom"));
 
-        BcEcdsaVerifier.DSA_ENCODING = encoding;
+        BcEcdsaVerifier.dsaEncoding = encoding;
 
         VeriLogCryptoException ex = assertThrows(
                 VeriLogCryptoException.class,

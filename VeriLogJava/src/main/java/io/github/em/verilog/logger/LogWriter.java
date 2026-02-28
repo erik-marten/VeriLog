@@ -9,7 +9,6 @@
  */
 package io.github.em.verilog.logger;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.em.verilog.audit.HashChainState;
 import io.github.em.verilog.audit.SignedEntryFactory;
 import io.github.em.verilog.errors.VeriLogCryptoException;
@@ -40,9 +39,9 @@ final class LogWriter implements Runnable {
     private final RotationPolicy rotationPolicy;
 
     // writer-owned state
-    private volatile FramedLogFile file;
-    private volatile long bytesWrittenCurrent;
-    private volatile long lastFlushMs;
+    private FramedLogFile file;
+    private long bytesWrittenCurrent;
+    private long lastFlushMs;
     private int sinceFlush;
 
     private final SignedEntryFactory signedFactory = new SignedEntryFactory();
@@ -103,18 +102,11 @@ final class LogWriter implements Runnable {
     }
 
     private void mainLoop() throws VeriLogIoException, IOException {
-        while (true) {
+        while (!shouldTerminate()) {
             LogEvent ev = pollEvent();
-
-            if (ev == LogEvent.POISON) break;
-
-            if (ev != null) {
-                writeOne(ev);
-            }
-
+            if (ev == LogEvent.POISON) return;
+            if (ev != null) writeOne(ev);
             afterTick();
-
-            if (shouldTerminate()) break;
         }
     }
 
@@ -122,8 +114,8 @@ final class LogWriter implements Runnable {
         try {
             return queue.poll(50, TimeUnit.MILLISECONDS);
         } catch (InterruptedException ignored) {
-            // shutdown handled via 'closed' + POISON
-            return null;
+            Thread.currentThread().interrupt();
+            return LogEvent.POISON;
         }
     }
 
@@ -216,6 +208,7 @@ final class LogWriter implements Runnable {
             f.appendEncryptedJson(FramedLogFile.TYPE_LOG, seqForFrame, signedEntryJson);
 
             metrics.incWritten();
+            // Writer-thread confined state (only accessed from LogWriter.run())
             bytesWrittenCurrent += estimateFrameBytes(signedEntryJson.length);
             sinceFlush++;
 
