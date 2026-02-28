@@ -41,7 +41,7 @@ final class LogWriter implements Runnable {
 
     // writer-owned state
     private volatile FramedLogFile file;
-    private volatile long bytesWrittenCurrent;
+    private long bytesWrittenCurrent;
     private volatile long lastFlushMs;
     private int sinceFlush;
 
@@ -122,8 +122,8 @@ final class LogWriter implements Runnable {
         try {
             return queue.poll(50, TimeUnit.MILLISECONDS);
         } catch (InterruptedException ignored) {
-            // shutdown handled via 'closed' + POISON
-            return null;
+            Thread.currentThread().interrupt();
+            return LogEvent.POISON;
         }
     }
 
@@ -216,6 +216,7 @@ final class LogWriter implements Runnable {
             f.appendEncryptedJson(FramedLogFile.TYPE_LOG, seqForFrame, signedEntryJson);
 
             metrics.incWritten();
+            // Writer-thread confined state (only accessed from LogWriter.run())
             bytesWrittenCurrent += estimateFrameBytes(signedEntryJson.length);
             sinceFlush++;
 
