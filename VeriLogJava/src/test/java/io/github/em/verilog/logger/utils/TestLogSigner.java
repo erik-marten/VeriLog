@@ -1,8 +1,11 @@
-package io.github.em.verilog.logger;
+package io.github.em.verilog.logger.utils;
 
 import io.github.em.verilog.errors.VeriLogCryptoException;
 import io.github.em.verilog.sign.LogSigner;
-import org.bouncycastle.asn1.*;
+import org.bouncycastle.asn1.ASN1InputStream;
+import org.bouncycastle.asn1.ASN1Integer;
+import org.bouncycastle.asn1.ASN1Primitive;
+import org.bouncycastle.asn1.ASN1Sequence;
 import org.bouncycastle.util.encoders.Hex;
 
 import java.io.IOException;
@@ -17,7 +20,7 @@ final class TestLogSigner implements LogSigner {
     private final PrivateKey priv;
     private final String keyId;
 
-    TestLogSigner(PrivateKey priv, PublicKey pub) {
+     TestLogSigner(PrivateKey priv, PublicKey pub) {
         this.priv = priv;
         this.keyId = computeKeyId(pub);
     }
