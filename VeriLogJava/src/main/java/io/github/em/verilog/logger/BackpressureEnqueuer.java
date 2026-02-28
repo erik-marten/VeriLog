@@ -9,8 +9,6 @@
  */
 package io.github.em.verilog.logger;
 
-import io.github.em.verilog.errors.VeriLogException;
-
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 

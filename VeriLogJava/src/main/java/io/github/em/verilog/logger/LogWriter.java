@@ -9,7 +9,6 @@
  */
 package io.github.em.verilog.logger;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.em.verilog.audit.HashChainState;
 import io.github.em.verilog.audit.SignedEntryFactory;
 import io.github.em.verilog.errors.VeriLogCryptoException;
@@ -40,9 +39,9 @@ final class LogWriter implements Runnable {
     private final RotationPolicy rotationPolicy;
 
     // writer-owned state
-    private volatile FramedLogFile file;
+    private FramedLogFile file;
     private long bytesWrittenCurrent;
-    private volatile long lastFlushMs;
+    private long lastFlushMs;
     private int sinceFlush;
 
     private final SignedEntryFactory signedFactory = new SignedEntryFactory();
@@ -103,18 +102,11 @@ final class LogWriter implements Runnable {
     }
 
     private void mainLoop() throws VeriLogIoException, IOException {
-        while (true) {
+        while (!shouldTerminate()) {
             LogEvent ev = pollEvent();
-
-            if (ev == LogEvent.POISON) break;
-
-            if (ev != null) {
-                writeOne(ev);
-            }
-
+            if (ev == LogEvent.POISON) return;
+            if (ev != null) writeOne(ev);
             afterTick();
-
-            if (shouldTerminate()) break;
         }
     }
 

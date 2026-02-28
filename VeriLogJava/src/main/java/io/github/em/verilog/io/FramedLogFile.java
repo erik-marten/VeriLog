@@ -25,10 +25,21 @@ import java.util.Map;
 
 public final class FramedLogFile implements Closeable {
 
-    public static final byte TYPE_LOG = 1;
+    public static final byte TYPE_LOG = 0x01;
 
     private static final byte[] MAGIC = new byte[]{'V', 'L', 'O', 'G'};
     private static final int FIXED_HEADER_LEN = 4 + 1 + 1 + 2; // magic + version + flags + headerLen
+    private static final int DEK_LEN = 32;
+    private static final int LEN_PREFIX_BYTES = 4;
+    private static final int TYPE_BYTES = 1;
+    private static final int SEQ_BYTES = 8;
+    private static final int NONCE_BYTES = 24;
+    private static final int MAX_PAYLOAD_LEN = 64 * 1024 * 1024;
+    private static final byte AAD_SEP = 0x00;
+    private static final int AAD_FIXED_BYTES = 1 + 8 + 1 + 1;
+    private static final long HEADER_LEN_OFFSET = 4L + 1 + 1; // magic + version + flags
+    private static final int HEADER_LEN_BYTES = 2;
+    private static final int FRAME_HEADER_BYTES = TYPE_BYTES + SEQ_BYTES;
 
     private final FileChannel ch;
     private final SecureRandom rng;
@@ -84,7 +95,7 @@ public final class FramedLogFile implements Closeable {
     }
 
     private FramedLogFile(FileChannel ch, SecureRandom rng, byte[] dek32, String aad) {
-        if (dek32 == null || dek32.length != 32) throw new IllegalArgumentException("DEK must be 32 bytes");
+        if (dek32 == null || dek32.length != DEK_LEN) throw new IllegalArgumentException("DEK must be 32 bytes");
         this.ch = ch;
         this.rng = rng;
         this.dek32 = dek32.clone();
@@ -100,8 +111,8 @@ public final class FramedLogFile implements Closeable {
         byte[] aad = buildAad(type, seq);
         byte[] ct = XChaCha20Poly1305.encrypt(dek32, nonce, plaintextUtf8Json, aad);
 
-        int payloadLen = 1 + 8 + 24 + ct.length; // type + seq + nonce + ct
-        ByteBuffer frame = ByteBuffer.allocate(4 + payloadLen).order(ByteOrder.BIG_ENDIAN);
+        int payloadLen = TYPE_BYTES + SEQ_BYTES + NONCE_BYTES + ct.length; // type + seq + nonce + ct
+        ByteBuffer frame = ByteBuffer.allocate(LEN_PREFIX_BYTES + payloadLen).order(ByteOrder.BIG_ENDIAN);
         frame.putInt(payloadLen);
         frame.put(type);
         frame.putLong(seq);
@@ -180,29 +191,37 @@ public final class FramedLogFile implements Closeable {
         long pos;
 
         // read headerLen to jump correctly
-        ch.position(4 + 1 + 1);
-        ByteBuffer hb = ByteBuffer.allocate(2).order(ByteOrder.BIG_ENDIAN);
+        ch.position(HEADER_LEN_OFFSET);
+        ByteBuffer hb = ByteBuffer.allocate(HEADER_LEN_BYTES).order(ByteOrder.BIG_ENDIAN);
         readFully(hb);
         hb.flip();
         int headerLen = hb.getShort() & 0xFFFF;
-        pos = FIXED_HEADER_LEN + headerLen;
+        pos = (long) FIXED_HEADER_LEN + headerLen;
 
         long lastGood = pos;
         ch.position(pos);
 
         ByteBuffer lenBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
 
+        boolean done = false;
+
         while (true) {
             lenBuf.clear();
             int r = ch.read(lenBuf);
-            if (r == -1) break;
-            if (r < 4) break; // partial length
+
+            if (r < 4) break;
+
             lenBuf.flip();
             int payloadLen = lenBuf.getInt();
-            if (payloadLen <= 0 || payloadLen > 64 * 1024 * 1024) break; // sanity limit 64MiB
+
             long frameEnd = ch.position() + payloadLen;
-            if (frameEnd > size) break; // partial payload
-            // skip payload
+
+            if (payloadLen <= 0
+                    || payloadLen > MAX_PAYLOAD_LEN
+                    || frameEnd > size) {
+                break;
+            }
+
             ch.position(frameEnd);
             lastGood = frameEnd;
         }
@@ -217,7 +236,7 @@ public final class FramedLogFile implements Closeable {
         // Simple scan: read frames, track max seq, return max+1
         long pos;
 
-        ch.position(4 + 1 + 1);
+        ch.position(HEADER_LEN_OFFSET);
         ByteBuffer hb = ByteBuffer.allocate(2).order(ByteOrder.BIG_ENDIAN);
         readFully(hb);
         hb.flip();
@@ -233,21 +252,28 @@ public final class FramedLogFile implements Closeable {
         while (true) {
             lenBuf.clear();
             int r = ch.read(lenBuf);
-            if (r == -1) break;
-            if (r < 4) break;
+
+            if (r == -1 || r < 4) {
+                break; // EOF or partial length
+            }
+
             lenBuf.flip();
             int payloadLen = lenBuf.getInt();
+
+            // Need at least type(1) + seq(8) present in payload
+            if (payloadLen < (1 + 8) || payloadLen > MAX_PAYLOAD_LEN) {
+                break; // corrupt/insane frame
+            }
 
             headBuf.clear();
             readFully(headBuf);
             headBuf.flip();
-            /* type */
-            headBuf.get();
+
+            headBuf.get(); // type
             long seq = headBuf.getLong();
             if (seq > maxSeq) maxSeq = seq;
 
-            // skip nonce + ct
-            long skip = payloadLen - (1 + 8);
+            long skip = (long) payloadLen - FRAME_HEADER_BYTES;
             ch.position(ch.position() + skip);
         }
         return maxSeq + 1;
@@ -255,11 +281,11 @@ public final class FramedLogFile implements Closeable {
 
     private byte[] buildAad(byte type, long seq) {
         // aad = prefix || 0x00 || uint64_be(seq) || 0x00 || type
-        ByteBuffer bb = ByteBuffer.allocate(aadPrefix.length + 1 + 8 + 1 + 1).order(ByteOrder.BIG_ENDIAN);
+        ByteBuffer bb = ByteBuffer.allocate(aadPrefix.length + AAD_FIXED_BYTES).order(ByteOrder.BIG_ENDIAN);
         bb.put(aadPrefix);
-        bb.put((byte) 0x00);
+        bb.put(AAD_SEP);
         bb.putLong(seq);
-        bb.put((byte) 0x00);
+        bb.put(AAD_SEP);
         bb.put(type);
         return bb.array();
     }

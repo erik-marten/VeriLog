@@ -30,8 +30,7 @@ final class ErrorMessages {
             return MessageFormat.format(pattern, args);
         } catch (MissingResourceException e) {
             // Safe fallback: prevent fail while trying to build an error message
-            String fallback = key + (args != null && args.length > 0 ? " " + java.util.Arrays.toString(args) : "");
-            return fallback;
+            return key + (args != null && args.length > 0 ? " " + java.util.Arrays.toString(args) : "");
         }
     }
 }

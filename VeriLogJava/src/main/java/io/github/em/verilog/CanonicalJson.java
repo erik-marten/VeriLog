@@ -40,7 +40,7 @@ public final class CanonicalJson {
         return canonicalize(node);
     }
 
-    public static String canonicalize(JsonNode node) throws VeriLogCryptoException {
+    public static String canonicalize(JsonNode node) {
         StringBuilder sb = new StringBuilder();
         writeNode(node, sb);
         return sb.toString();

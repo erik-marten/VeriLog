@@ -117,7 +117,7 @@ public final class VeriLogReader {
             sigOk = BcEcdsaVerifier.verifyEntryHashSig(pub, ch.entryHashBytes, sigRaw);
         } catch (VeriLogCryptoException e) {
             // unexpected crypto failure (engine/provider/etc)
-            throw e;
+            throw new VeriLogCryptoException("crypto.verify_failed", e, "seq", String.valueOf(frame.seq));
         }
 
         if (!sigOk) {
@@ -232,13 +232,7 @@ public final class VeriLogReader {
 
     private CanonicalAndHash canonicalizeAndHash(JsonNode signed, Frame f) throws VeriLogException {
         final String canonicalPayload;
-        try {
-            canonicalPayload = canonicalizeWithout(signed);
-        } catch (VeriLogJsonException e) {
-            // unexpected (library/JSON issue)
-            throw e;
-        }
-
+        canonicalPayload = canonicalizeWithout(signed);
         byte[] entryHashBytes = CryptoUtil.sha256Utf8(canonicalPayload);
         String computedEntryHashHex = CryptoUtil.toHexLower(entryHashBytes);
 
@@ -355,10 +349,6 @@ public final class VeriLogReader {
                 }
             }
             return CanonicalJson.canonicalize(copy);
-
-        } catch (VeriLogCryptoException e) {
-            // unexpected crypto failure during canonicalization
-            throw new VeriLogJsonException("json.canonicalize_failed", e);
 
         } catch (RuntimeException e) {
             // unexpected Jackson/runtime issue
