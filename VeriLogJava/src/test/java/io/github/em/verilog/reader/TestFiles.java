@@ -33,19 +33,19 @@ final class TestFiles {
 
     static final byte[] DEK_ZERO_32 = new byte[32];
 
-    private static volatile Path ROOT;
-    private static volatile TestMaterial TM; // used for signature-valid/invalid cases
+    private static volatile Path path;
+    private static volatile TestMaterial testMaterial; // used for signature-valid/invalid cases
 
     private TestFiles() {
     }
 
     static TestMaterial material() {
-        if (TM == null) {
+        if (testMaterial == null) {
             synchronized (TestFiles.class) {
-                if (TM == null) TM = new TestMaterial();
+                if (testMaterial == null) testMaterial = new TestMaterial();
             }
         }
-        return TM;
+        return testMaterial;
     }
 
     static Path invalidHeaderFile() {
@@ -360,14 +360,14 @@ final class TestFiles {
     }
 
     private static Path root() throws Exception {
-        if (ROOT == null) {
+        if (path == null) {
             synchronized (TestFiles.class) {
-                if (ROOT == null) {
-                    ROOT = Files.createTempDirectory("verilog-fixtures-");
+                if (path == null) {
+                    path = Files.createTempDirectory("verilog-fixtures-");
                 }
             }
         }
-        return ROOT;
+        return path;
     }
 
     // --------------------------------------------------------------------------------------------
