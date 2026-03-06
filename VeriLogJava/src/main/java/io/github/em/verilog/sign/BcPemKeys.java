@@ -17,7 +17,8 @@ import java.io.StringReader;
 import java.util.Objects;
 
 public final class BcPemKeys {
-    private BcPemKeys() {}
+    private BcPemKeys() {
+    }
 
     public static byte[] readPkcs8PrivateKeyDer(String pem) throws VeriLogFormatException {
         Objects.requireNonNull(pem, "pem");
@@ -27,10 +28,7 @@ public final class BcPemKeys {
             if (obj == null) throw new VeriLogFormatException("format.pem.empty");
             // Usually "PRIVATE KEY" for PKCS8
             return obj.getContent();
-        } catch (IOException e) {
-            throw new VeriLogFormatException("format.pem.read_failed", e);
-        } catch (RuntimeException e) {
-            // covers malformed base64 / invalid structure thrown inside bouncycastle reader
+        } catch (IOException | RuntimeException e) {
             throw new VeriLogFormatException("format.pem.read_failed", e);
         }
     }
@@ -43,9 +41,7 @@ public final class BcPemKeys {
             if (obj == null) throw new VeriLogFormatException("format.pem.empty");
             // Usually "PUBLIC KEY" for SPKI
             return obj.getContent();
-        } catch (IOException e) {
-            throw new VeriLogFormatException("format.pem.read_failed", e);
-        } catch (RuntimeException e) {
+        } catch (IOException | RuntimeException e) {
             throw new VeriLogFormatException("format.pem.read_failed", e);
         }
     }
