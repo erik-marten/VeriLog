@@ -13,6 +13,7 @@ import io.github.em.verilog.errors.VeriLogFormatException;
 import org.bouncycastle.util.io.pem.PemReader;
 
 import java.io.IOException;
+import java.io.Reader;
 import java.io.StringReader;
 import java.util.Objects;
 
@@ -22,11 +23,17 @@ public final class BcPemKeys {
 
     public static byte[] readPkcs8PrivateKeyDer(String pem) throws VeriLogFormatException {
         Objects.requireNonNull(pem, "pem");
+        return readPkcs8PrivateKeyDer(new StringReader(pem));
+    }
 
-        try (PemReader r = new PemReader(new StringReader(pem))) {
+    static byte[] readPkcs8PrivateKeyDer(Reader reader) throws VeriLogFormatException {
+        try (PemReader r = new PemReader(reader)) {
             var obj = r.readPemObject();
-            if (obj == null) throw new VeriLogFormatException("format.pem.empty");
-            // Usually "PRIVATE KEY" for PKCS8
+
+            if (obj == null) {
+                throw new VeriLogFormatException("format.pem.empty");
+            }
+
             return obj.getContent();
         } catch (IOException | RuntimeException e) {
             throw new VeriLogFormatException("format.pem.read_failed", e);
