@@ -205,17 +205,15 @@ public final class FramedLogFile implements Closeable {
         while (true) {
             lenBuf.clear();
             int r = ch.read(lenBuf);
-
-            if (r < 4) break;
+            if (r < Integer.BYTES) {
+                break;
+            }
 
             lenBuf.flip();
             int payloadLen = lenBuf.getInt();
 
             long frameEnd = ch.position() + payloadLen;
-
-            if (payloadLen <= 0
-                    || payloadLen > MAX_PAYLOAD_LEN
-                    || frameEnd > size) {
+            if (payloadLen <= 0 || payloadLen > MAX_PAYLOAD_LEN || frameEnd > size) {
                 break;
             }
 
@@ -238,7 +236,7 @@ public final class FramedLogFile implements Closeable {
         readFully(hb);
         hb.flip();
         int headerLen = hb.getShort() & 0xFFFF;
-        pos = FIXED_HEADER_LEN + headerLen;
+        pos = (long) FIXED_HEADER_LEN + headerLen;
 
         long maxSeq = 0;
         ch.position(pos);
@@ -249,17 +247,14 @@ public final class FramedLogFile implements Closeable {
         while (true) {
             lenBuf.clear();
             int r = ch.read(lenBuf);
-
-            if (r == -1 || r < 4) {
+            if (r < Integer.BYTES) {
                 break; // EOF or partial length
             }
 
             lenBuf.flip();
             int payloadLen = lenBuf.getInt();
-
-            // Need at least type(1) + seq(8) present in payload
-            if (payloadLen < (1 + 8) || payloadLen > MAX_PAYLOAD_LEN) {
-                break; // corrupt/insane frame
+            if (payloadLen < (TYPE_BYTES + SEQ_BYTES) || payloadLen > MAX_PAYLOAD_LEN) {
+                break; // corrupt or insane frame
             }
 
             headBuf.clear();
@@ -268,7 +263,7 @@ public final class FramedLogFile implements Closeable {
 
             headBuf.get(); // type
             long seq = headBuf.getLong();
-            if (seq > maxSeq) maxSeq = seq;
+            maxSeq = Math.max(maxSeq, seq);
 
             long skip = (long) payloadLen - FRAME_HEADER_BYTES;
             ch.position(ch.position() + skip);
