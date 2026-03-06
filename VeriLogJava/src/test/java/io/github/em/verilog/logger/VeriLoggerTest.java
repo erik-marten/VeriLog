@@ -134,19 +134,6 @@ class VeriLoggerTest {
 
     // -------- helpers --------
 
-//    private static VeriLoggerConfig.Builder baseCfg(Path dir) throws Exception {
-//        byte[] dek = new byte[32];
-//        new SecureRandom().nextBytes(dek);
-//
-//        VeriLoggerConfig cfg = TestConfigBuilder.configBuilder(dir)
-//                .filePrefix("app")
-//                .currentFileName("current.vlog")
-//                .actor("test")
-//                .encryptionKey(dek)
-//                .signer(new TestSigner());
-//        return cfg;
-//    }
-
     private static void waitUntil(BooleanSupplier condition, Duration timeout) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         while (System.currentTimeMillis() < deadline) {
