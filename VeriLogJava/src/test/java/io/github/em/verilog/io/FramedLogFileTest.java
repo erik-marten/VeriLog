@@ -146,9 +146,7 @@ public class FramedLogFileTest {
 
             assertFalse(it.hasNext());
             assertThrows(java.util.NoSuchElementException.class, it::next);
-        } catch (VeriLogIoException e) {
-            throw new RuntimeException(e);
-        } catch (VeriLogFormatException e) {
+        } catch (VeriLogIoException | VeriLogFormatException e) {
             throw new RuntimeException(e);
         }
     }

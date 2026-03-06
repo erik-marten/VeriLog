@@ -67,7 +67,6 @@ class BackpressureEnqueuerTest {
 
     @Test
     void should_timeout_and_return_false_when_queue_is_full_and_mode_is_block() {
-        LogSigner dummySigner = mock(LogSigner.class);
         VeriLoggerConfig cfg = new VeriLoggerConfig.Builder()
                 .backpressureMode(VeriLoggerConfig.BackpressureMode.BLOCK)
                 .offerTimeoutMs(200)

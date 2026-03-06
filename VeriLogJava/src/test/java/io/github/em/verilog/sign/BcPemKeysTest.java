@@ -2,10 +2,14 @@ package io.github.em.verilog.sign;
 
 import io.github.em.verilog.errors.VeriLogFormatException;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
+import java.io.Reader;
 import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 
 class BcPemKeysTest {
 
@@ -37,4 +41,53 @@ class BcPemKeysTest {
         VeriLogFormatException ex = assertThrows(VeriLogFormatException.class, () -> BcPemKeys.readPkcs8PrivateKeyDer(""));
         assertNotNull(ex.getMessage());
     }
+
+    @Test
+    void should_wrap_io_exception_as_read_failed() {
+        Reader failingReader = new Reader() {
+            @Override
+            public int read(char[] cbuf, int off, int len) throws IOException {
+                throw new IOException("boom");
+            }
+
+            @Override
+            public void close() {
+                // nothing to close
+            }
+        };
+
+        VeriLogFormatException ex = assertThrows(
+                VeriLogFormatException.class,
+                () -> BcPemKeys.readPkcs8PrivateKeyDer(failingReader)
+        );
+
+        assertEquals("format.pem.read_failed", ex.getMessageKey());
+        assertNotNull(ex.getCause());
+        assertTrue(ex.getCause() instanceof IOException);
+    }
+
+    @Test
+    void should_wrap_runtime_exception_as_read_failed() {
+        Reader failingReader = new Reader() {
+            @Override
+            public int read(char[] cbuf, int off, int len) {
+                throw new RuntimeException("boom");
+            }
+
+            @Override
+            public void close() {
+                // nothing to close
+            }
+        };
+
+        VeriLogFormatException ex = assertThrows(
+                VeriLogFormatException.class,
+                () -> BcPemKeys.readPkcs8PrivateKeyDer(failingReader)
+        );
+
+        assertEquals("format.pem.read_failed", ex.getMessageKey());
+        assertNotNull(ex.getCause());
+        assertTrue(ex.getCause() instanceof RuntimeException);
+    }
+
 }
