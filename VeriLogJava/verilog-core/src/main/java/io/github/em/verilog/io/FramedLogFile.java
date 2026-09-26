@@ -9,24 +9,22 @@
  */
 package io.github.em.verilog.io;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.em.verilog.errors.VeriLogIoException;
 
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.util.Map;
 
 public final class FramedLogFile implements Closeable {
 
     public static final byte TYPE_LOG = 0x01;
 
     private static final byte[] MAGIC = new byte[]{'V', 'L', 'O', 'G'};
+    private static final VlogHeaderCodec HEADER_CODEC = new VlogHeaderCodec();
     private static final int FIXED_HEADER_LEN = 4 + 1 + 1 + 2; // magic + version + flags + headerLen
     private static final int TYPE_BYTES = 1;
     private static final int SEQ_BYTES = 8;
@@ -37,7 +35,7 @@ public final class FramedLogFile implements Closeable {
 
     private final FileChannel ch;
     private final EncryptedFrameCodec codec;
-    private final byte[] aadPrefix; // UTF8(header.aad)
+    private final String aadPrefix;
 
     private long nextSeq; // maintained by logger
 
@@ -90,7 +88,7 @@ public final class FramedLogFile implements Closeable {
     private FramedLogFile(FileChannel ch, SecureRandom rng, byte[] dek32, String aad) {
         this.codec = new EncryptedFrameCodec(dek32, aad, rng);
         this.ch = ch;
-        this.aadPrefix = aad.getBytes(StandardCharsets.UTF_8);
+        this.aadPrefix = aad;
     }
 
     public long nextSeq() {
@@ -115,26 +113,7 @@ public final class FramedLogFile implements Closeable {
     // ---------------- header + recovery ----------------
 
     private void writeHeader() throws IOException {
-        ObjectMapper om = new ObjectMapper();
-        byte flags = 0x01; // encrypted records
-
-        byte[] headerJson = om.writeValueAsBytes(Map.of(
-                "v", 1,
-                "alg", "XChaCha20-Poly1305",
-                "aad", new String(aadPrefix, StandardCharsets.UTF_8),
-                "createdAt", Instant.now().toString()
-        ));
-
-        if (headerJson.length > 65535) throw new IOException("Header too large");
-
-        ByteBuffer buf = ByteBuffer.allocate(FIXED_HEADER_LEN + headerJson.length).order(ByteOrder.BIG_ENDIAN);
-        buf.put(MAGIC);
-        buf.put((byte) 1);           // version
-        buf.put(flags);
-        buf.putShort((short) headerJson.length);
-        buf.put(headerJson);
-        buf.flip();
-
+        ByteBuffer buf = ByteBuffer.wrap(HEADER_CODEC.encode(aadPrefix, Instant.now()));
         ch.position(0);
         while (buf.hasRemaining()) ch.write(buf);
         ch.force(true);
