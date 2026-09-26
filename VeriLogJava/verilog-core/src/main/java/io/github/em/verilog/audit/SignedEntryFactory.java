@@ -21,11 +21,18 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
+import java.util.Objects;
 
 public final class SignedEntryFactory {
 
     private final ObjectMapper om = new ObjectMapper();
 
+    /**
+     * Compatibility overload for the original structured arguments.
+     *
+     * <p>This method delegates through {@link AuditEvent} and therefore applies
+     * {@code AuditEvent}'s validation and supported-data rules.</p>
+     */
     public byte[] buildSignedEntryJsonUtf8(
             HashChainState chain,
             LogSigner signer,
@@ -34,16 +41,31 @@ public final class SignedEntryFactory {
             Map<String, Object> event,
             Instant tsUtc
     ) throws VeriLogCryptoException {
+        return buildSignedEntryJsonUtf8(
+                chain,
+                signer,
+                new AuditEvent(tsUtc, actor, eventType, event)
+        );
+    }
+
+    public byte[] buildSignedEntryJsonUtf8(
+            HashChainState chain,
+            LogSigner signer,
+            AuditEvent event
+    ) throws VeriLogCryptoException {
+        Objects.requireNonNull(chain, "chain");
+        Objects.requireNonNull(signer, "signer");
+        Objects.requireNonNull(event, "event");
 
         long seq = chain.allocateSeq();
 
         ObjectNode unsigned = om.createObjectNode();
         unsigned.put("version", 1);
         unsigned.put("seq", seq);
-        unsigned.put("ts", tsUtc.toString());
-        unsigned.put("actor", actor);
-        unsigned.put("eventType", eventType);
-        unsigned.set("event", om.valueToTree(event));
+        unsigned.put("ts", event.timestamp().toString());
+        unsigned.put("actor", event.actor());
+        unsigned.put("eventType", event.eventType());
+        unsigned.set("event", om.valueToTree(event.data()));
         unsigned.put("prevHash", chain.prevHashHex());
         unsigned.put("keyId", signer.keyId());
 
