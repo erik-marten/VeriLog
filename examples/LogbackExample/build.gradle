@@ -1,0 +1,23 @@
+plugins {
+    id 'application'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(11)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'io.github.em:verilog-core:1.0-SNAPSHOT'
+    implementation 'io.github.em:verilog-logback:1.0-SNAPSHOT'
+    implementation 'ch.qos.logback:logback-classic:1.6.4'
+}
+
+application {
+    mainClass = 'io.github.em.verilog.example.Main'
+}

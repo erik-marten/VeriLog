@@ -28,6 +28,9 @@ jobs:
       - name: Build + tests + coverage
         run: ./gradlew --no-daemon -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_11_X64 clean build
 
+      - name: Smoke test SLF4J / Logback example
+        run: ./VeriLogJava/gradlew --no-daemon -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_11_X64 -p examples/LogbackExample clean run
+
       - name: Upload build artifacts (JARs)
         uses: actions/upload-artifact@v7.0.1
         with:
