@@ -1,10 +1,12 @@
 package io.github.em.verilog.io;
 
 import io.github.em.verilog.CryptoUtil;
+import io.github.em.verilog.crypto.XChaCha20Poly1305;
 import io.github.em.verilog.errors.VeriLogException;
 import io.github.em.verilog.errors.VeriLogFormatException;
 import io.github.em.verilog.errors.VeriLogIoException;
 import io.github.em.verilog.reader.FramedFileReader;
+import io.github.em.verilog.reader.Frame;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedConstruction;
@@ -13,6 +15,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -22,6 +25,36 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 public class FramedLogFileTest {
+
+    @Test
+    void writer_frame_is_readable_by_framed_file_reader() throws Exception {
+        byte[] dek = CryptoUtil.sha256Utf8("integration DEK");
+        byte[] plaintext = "{\"msg\":\"hi\"}".getBytes(StandardCharsets.UTF_8);
+        String prefix = "caf\u00e9|v1";
+        Path file = tempDir.resolve("reader-compat.vlog");
+
+        try (FramedLogFile writer = FramedLogFile.openOrCreate(file, dek, prefix)) {
+            writer.appendEncryptedJson(FramedLogFile.TYPE_LOG, 1, plaintext);
+            assertEquals(2, writer.nextSeq());
+        }
+
+        try (FramedFileReader reader = new FramedFileReader(file)) {
+            reader.positionAtFirstFrame();
+            Frame frame = reader.readNextFrame(false);
+            assertNotNull(frame);
+            assertEquals(FramedLogFile.TYPE_LOG, frame.type);
+            assertEquals(1, frame.seq);
+            assertEquals(24, frame.nonce24.length);
+            assertEquals(plaintext.length + 16, frame.ct.length);
+            ByteBuffer aad = ByteBuffer.allocate(prefix.getBytes(StandardCharsets.UTF_8).length + 11)
+                    .order(ByteOrder.BIG_ENDIAN);
+            aad.put(prefix.getBytes(StandardCharsets.UTF_8)).put((byte) 0).putLong(1).put((byte) 0)
+                    .put(FramedLogFile.TYPE_LOG);
+            assertArrayEquals(plaintext,
+                    XChaCha20Poly1305.decrypt(dek, frame.nonce24, frame.ct, aad.array()));
+            assertNull(reader.readNextFrame(false));
+        }
+    }
 
     @TempDir
     Path tempDir;
@@ -263,6 +296,4 @@ public class FramedLogFileTest {
         }
     }
 }
-
-
 

@@ -10,7 +10,6 @@
 package io.github.em.verilog.io;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.em.verilog.crypto.XChaCha20Poly1305;
 import io.github.em.verilog.errors.VeriLogIoException;
 
 import java.io.*;
@@ -29,21 +28,15 @@ public final class FramedLogFile implements Closeable {
 
     private static final byte[] MAGIC = new byte[]{'V', 'L', 'O', 'G'};
     private static final int FIXED_HEADER_LEN = 4 + 1 + 1 + 2; // magic + version + flags + headerLen
-    private static final int DEK_LEN = 32;
-    private static final int LEN_PREFIX_BYTES = 4;
     private static final int TYPE_BYTES = 1;
     private static final int SEQ_BYTES = 8;
-    private static final int NONCE_BYTES = 24;
     private static final int MAX_PAYLOAD_LEN = 64 * 1024 * 1024;
-    private static final byte AAD_SEP = 0x00;
-    private static final int AAD_FIXED_BYTES = 1 + 8 + 1 + 1;
     private static final long HEADER_LEN_OFFSET = 4L + 1 + 1; // magic + version + flags
     private static final int HEADER_LEN_BYTES = 2;
     private static final int FRAME_HEADER_BYTES = TYPE_BYTES + SEQ_BYTES;
 
     private final FileChannel ch;
-    private final SecureRandom rng;
-    private final byte[] dek32;
+    private final EncryptedFrameCodec codec;
     private final byte[] aadPrefix; // UTF8(header.aad)
 
     private long nextSeq; // maintained by logger
@@ -95,10 +88,8 @@ public final class FramedLogFile implements Closeable {
     }
 
     private FramedLogFile(FileChannel ch, SecureRandom rng, byte[] dek32, String aad) {
-        if (dek32 == null || dek32.length != DEK_LEN) throw new IllegalArgumentException("DEK must be 32 bytes");
+        this.codec = new EncryptedFrameCodec(dek32, aad, rng);
         this.ch = ch;
-        this.rng = rng;
-        this.dek32 = dek32.clone();
         this.aadPrefix = aad.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -107,19 +98,7 @@ public final class FramedLogFile implements Closeable {
     }
 
     public void appendEncryptedJson(byte type, long seq, byte[] plaintextUtf8Json) throws IOException {
-        byte[] nonce = XChaCha20Poly1305.randomNonce(rng);
-        byte[] aad = buildAad(type, seq);
-        byte[] ct = XChaCha20Poly1305.encrypt(dek32, nonce, plaintextUtf8Json, aad);
-
-        int payloadLen = TYPE_BYTES + SEQ_BYTES + NONCE_BYTES + ct.length; // type + seq + nonce + ct
-        ByteBuffer frame = ByteBuffer.allocate(LEN_PREFIX_BYTES + payloadLen).order(ByteOrder.BIG_ENDIAN);
-        frame.putInt(payloadLen);
-        frame.put(type);
-        frame.putLong(seq);
-        frame.put(nonce);
-        frame.put(ct);
-        frame.flip();
-
+        ByteBuffer frame = ByteBuffer.wrap(codec.encode(type, seq, plaintextUtf8Json));
         while (frame.hasRemaining()) ch.write(frame);
         nextSeq = seq + 1;
     }
@@ -269,17 +248,6 @@ public final class FramedLogFile implements Closeable {
             ch.position(ch.position() + skip);
         }
         return maxSeq + 1;
-    }
-
-    private byte[] buildAad(byte type, long seq) {
-        // aad = prefix || 0x00 || uint64_be(seq) || 0x00 || type
-        ByteBuffer bb = ByteBuffer.allocate(aadPrefix.length + AAD_FIXED_BYTES).order(ByteOrder.BIG_ENDIAN);
-        bb.put(aadPrefix);
-        bb.put(AAD_SEP);
-        bb.putLong(seq);
-        bb.put(AAD_SEP);
-        bb.put(type);
-        return bb.array();
     }
 
     private void readFully(ByteBuffer buf) throws IOException {
