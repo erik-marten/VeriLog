@@ -53,9 +53,10 @@ Logback owns logging. VeriLog owns cryptography. The appender recovers and verif
 
 ## Application usage
 
-Given an `org.slf4j.Logger logger` attached to the VeriLog appender, use ordinary SLF4J 2 logging. An unmarked call remains an ordinary log event and produces no VeriLog frame:
+After programmatic bootstrap attaches the VeriLog appender to the corresponding Logback logger, application code obtains its logger through SLF4J. An unmarked call remains an ordinary log event and produces no VeriLog frame:
 
 ```java
+org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger("example-service");
 logger.info("Application started");
 
 logger.atInfo()

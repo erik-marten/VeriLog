@@ -2,7 +2,6 @@ package io.github.em.verilog.example;
 
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.classic.util.LogbackMDCAdapter;
 import ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy;
 import ch.qos.logback.core.util.FileSize;
 import io.github.em.verilog.logback.VeriLogRollingFileAppender;
@@ -11,7 +10,9 @@ import io.github.em.verilog.reader.MapPublicKeyResolver;
 import io.github.em.verilog.reader.VeriLogReader;
 import io.github.em.verilog.sign.BcEcdsaP256Signer;
 import io.github.em.verilog.sign.BcPublicKeyLoader;
+import org.slf4j.ILoggerFactory;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,9 +42,12 @@ public final class Main {
         MapPublicKeyResolver resolver = new MapPublicKeyResolver(Map.of(
                 signer.keyId(), BcPublicKeyLoader.fromSpkiDer(publicKeyDer)));
 
-        LoggerContext context = new LoggerContext();
-        // A standalone context needs an MDC adapter for normal Logback event metadata.
-        context.setMDCAdapter(new LogbackMDCAdapter());
+        ILoggerFactory loggerFactory = LoggerFactory.getILoggerFactory();
+        if (!(loggerFactory instanceof LoggerContext)) {
+            throw new IllegalStateException("Expected Logback LoggerContext");
+        }
+        LoggerContext context = (LoggerContext) loggerFactory;
+        context.reset();
         VeriLogRollingFileAppender appender = new VeriLogRollingFileAppender();
         try {
             appender.setContext(context);
@@ -72,9 +76,10 @@ public final class Main {
                 throw new IllegalStateException("VeriLog appender failed to start");
             }
 
-            ch.qos.logback.classic.Logger logbackLogger = context.getLogger("example-service");
+            ch.qos.logback.classic.Logger logbackLogger =
+                    (ch.qos.logback.classic.Logger) LoggerFactory.getLogger("example-service");
             logbackLogger.addAppender(appender);
-            Logger logger = logbackLogger;
+            Logger logger = LoggerFactory.getLogger("example-service");
 
             logger.info("Application started");
             logger.atInfo()

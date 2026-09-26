@@ -15,7 +15,7 @@ VeriLog verification succeeded.
 Verified audit entries: 2
 ```
 
-The application emits an ordinary `logger.info("Application started")` and two explicit audit events. An audit event uses SLF4J 2 key/value metadata:
+During bootstrap, the example obtains Logback's `LoggerContext` from `LoggerFactory.getILoggerFactory()`, resets prior Logback configuration, and attaches the VeriLog appender. Application logging obtains an SLF4J logger with `LoggerFactory.getLogger("example-service")`. It emits an ordinary `logger.info("Application started")` and two explicit audit events. An audit event uses SLF4J 2 key/value metadata:
 
 ```java
 logger.atInfo()
@@ -25,6 +25,6 @@ logger.atInfo()
 
 The other event has type `USER_LOGOUT`. `INFO` is only the Logback severity level; it is never used as `eventType`. The unmarked startup message creates no VeriLog frame.
 
-The P-256 signing key pair and 32-byte DEK are generated in memory for each run. This is demo material: the example neither persists nor prints it, so a later process cannot decrypt or verify these logs. Production applications must supply durable, protected keys and retain the matching public keys for verification. The current integration is bootstrapped programmatically because its signer, public-key resolver, and DEK are typed security objects; XML-only bootstrap is a separate design task. An isolated `LoggerContext` also needs a Logback MDC adapter so ordinary logging events expose MDC metadata to the integration.
+The P-256 signing key pair and 32-byte DEK are generated in memory for each run. This is demo material: the example neither persists nor prints it, so a later process cannot decrypt or verify these logs. Production applications must supply durable, protected keys and retain the matching public keys for verification. The current integration is bootstrapped programmatically because its signer, public-key resolver, and DEK are typed security objects; XML-only bootstrap is a separate design task. The SLF4J-backed context already has the MDC adapter used by ordinary Logback events.
 
 One JVM must own each logical chain. Keep `append=true`, `prudent=false`, and uncompressed `.vlog` rotation. Retain the active file and every rotated file from the chain root for restart recovery; do not enable bounded retention that deletes that history. The example uses a normal size-and-time rolling policy without compression or a retention bound, and does not depend on a rollover occurring during its short run. Logging filters, routing, or upstream asynchronous components can discard events before they reach VeriLog, so the cryptographic guarantee starts at the integration boundary.
