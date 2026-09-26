@@ -4,9 +4,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.em.verilog.CanonicalJson;
 import io.github.em.verilog.CryptoUtil;
+import io.github.em.verilog.audit.AuditEvent;
+import io.github.em.verilog.audit.HashChainState;
+import io.github.em.verilog.audit.SignedEntryFactory;
 import io.github.em.verilog.crypto.XChaCha20Poly1305;
 import io.github.em.verilog.errors.VeriLogCryptoException;
+import io.github.em.verilog.errors.VeriLogFormatException;
+import io.github.em.verilog.errors.VeriLogIoException;
 import io.github.em.verilog.io.FramedLogFile;
+import io.github.em.verilog.sign.LogSigner;
 import org.bouncycastle.asn1.nist.NISTNamedCurves;
 import org.bouncycastle.crypto.digests.SHA256Digest;
 import org.bouncycastle.crypto.generators.ECKeyPairGenerator;
@@ -22,6 +28,7 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
 
@@ -299,7 +306,7 @@ class VeriLogReaderE2ETest {
     void should_accept_header_only_active_file_without_resetting_chain() throws Exception {
         TestMaterial tm = new TestMaterial();
         Path dir = Files.createTempDirectory("vlog-empty-current");
-        writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2);
+        String hash = writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2);
         writeVlogFileRawEntries(dir.resolve("b.vlog"), "VeriLog|v1", tm.dek32);
         writeVlogFileRawEntries(dir.resolve("current.vlog"), "VeriLog|v1", tm.dek32);
 
@@ -308,6 +315,9 @@ class VeriLogReaderE2ETest {
         assertEquals(3, rep.results().size());
         assertEquals(2, rep.results().get(1).lastSeqOrFailSeq);
         assertEquals(2, rep.results().get(2).lastSeqOrFailSeq);
+        HashChainState recovered = new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver);
+        assertEquals(3, recovered.nextSeq());
+        assertEquals(hash, recovered.prevHashHex());
     }
 
     @Test
@@ -329,15 +339,119 @@ class VeriLogReaderE2ETest {
         Path dir = Files.createTempDirectory("vlog-partial-current");
         String hash = writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1);
         Path current = dir.resolve("current.vlog");
-        writeChainFile(current, tm, hash, 2);
+        hash = writeChainFile(current, tm, hash, 2);
         Files.write(current, new byte[]{0, 1}, StandardOpenOption.APPEND);
 
         assertTrue(new VeriLogReader().verifyDirectory(dir, tm.dek32, tm.keyResolver).allOk());
+        byte[] beforeRecovery = Files.readAllBytes(current);
+        HashChainState recovered = new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver);
+        assertEquals(3, recovered.nextSeq());
+        assertEquals(hash, recovered.prevHashHex());
+        assertArrayEquals(beforeRecovery, Files.readAllBytes(current));
 
         Path completed = dir.resolve("b.vlog");
         Files.move(current, completed);
-        assertThrows(io.github.em.verilog.errors.VeriLogIoException.class,
+        assertThrows(VeriLogIoException.class,
                 () -> new VeriLogReader().verifyDirectory(dir, tm.dek32, tm.keyResolver));
+        assertThrows(VeriLogIoException.class,
+                () -> new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver));
+    }
+
+    @Test
+    void should_recover_fresh_state_without_complete_entries() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-fresh-recovery");
+        assertFresh(new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver));
+
+        Files.writeString(dir.resolve("other.txt"), "ignored");
+        assertFresh(new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver));
+
+        writeVlogFileRawEntries(dir.resolve("current.vlog"), "VeriLog|v1", tm.dek32);
+        assertFresh(new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver));
+
+        Files.write(dir.resolve("current.vlog"), new byte[]{0, 1}, StandardOpenOption.APPEND);
+        assertFresh(new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver));
+    }
+
+    @Test
+    void should_resume_signed_entry_from_verified_directory_head() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-recovery-continuation");
+        Path rotated = dir.resolve("rotated.vlog");
+        Path current = dir.resolve("current.vlog");
+        String hash = writeChainFile(rotated, tm, "0".repeat(64), 1, 2);
+        hash = writeChainFile(current, tm, hash, 3);
+
+        VeriLogReader reader = new VeriLogReader();
+        assertTrue(reader.verifyDirectory(dir, tm.dek32, tm.keyResolver).allOk());
+        HashChainState recovered = reader.recoverChainState(dir, tm.dek32, tm.keyResolver);
+        assertEquals(4, recovered.nextSeq());
+        assertEquals(hash, recovered.prevHashHex());
+
+        LogSigner signer = new LogSigner() {
+            @Override public String keyId() { return tm.keyIdHex; }
+            @Override public byte[] signEntryHash(byte[] entryHash32) throws VeriLogCryptoException {
+                return signEntryHashLikeWriter(entryHash32, tm.priv);
+            }
+        };
+        AuditEvent event = new AuditEvent(Instant.parse("2026-02-20T00:00:01Z"),
+                "test", "continued", Map.of("x", 4));
+        byte[] signedJson = new SignedEntryFactory().buildSignedEntryJsonUtf8(recovered, signer, event);
+        var signed = OM.readTree(signedJson);
+        assertEquals(4, signed.get("seq").asLong());
+        assertEquals(hash, signed.get("prevHash").asText());
+    }
+
+    @Test
+    void should_fail_recovery_after_valid_prefix_when_signature_is_bad() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-recovery-bad-signature");
+        String hash = writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2);
+        ObjectNode unsigned = buildUnsignedEntry(3, hash, tm.keyIdHex,
+                "evt", OM.createObjectNode().put("x", 3));
+        SignedPayload bad = signEntry(unsigned, tm, true);
+        writeVlogFileRawEntries(dir.resolve("current.vlog"), "VeriLog|v1", tm.dek32,
+                new RawEntry(3, bad.json));
+
+        VeriLogFormatException ex = assertThrows(VeriLogFormatException.class,
+                () -> new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver));
+        assertEquals("format.chain_verification_failed", ex.getMessageKey());
+        assertTrue(ex.getMessage().contains("signature invalid"));
+    }
+
+    @Test
+    void should_fail_recovery_after_valid_prefix_when_aead_authentication_fails() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-recovery-bad-aead");
+        String hash = writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2);
+        Path current = dir.resolve("current.vlog");
+        writeChainFile(current, tm, hash, 3);
+        byte[] bytes = Files.readAllBytes(current);
+        bytes[bytes.length - 1] ^= 1;
+        Files.write(current, bytes, StandardOpenOption.TRUNCATE_EXISTING);
+
+        VeriLogFormatException ex = assertThrows(VeriLogFormatException.class,
+                () -> new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver));
+        assertEquals("format.chain_verification_failed", ex.getMessageKey());
+        assertTrue(ex.getMessage().contains("decrypt/auth failed"));
+    }
+
+    @Test
+    void should_fail_recovery_for_malformed_frame() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-recovery-malformed");
+        Path file = dir.resolve("current.vlog");
+        writeVlogFileRawEntries(file, "VeriLog|v1", tm.dek32);
+        Files.write(file, new byte[]{0, 0, 0, 1, 42}, StandardOpenOption.APPEND);
+
+        VeriLogFormatException ex = assertThrows(VeriLogFormatException.class,
+                () -> new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver));
+        assertEquals("format.invalid_payload_length", ex.getMessageKey());
+    }
+
+    private static void assertFresh(HashChainState state) {
+        assertEquals(1, state.nextSeq());
+        assertEquals("0".repeat(64), state.prevHashHex());
     }
 
     private static void assertDirectoryFailure(Path dir, TestMaterial tm, long seq, String reason) throws Exception {
@@ -346,6 +460,10 @@ class VeriLogReaderE2ETest {
         DirectoryVerifyReport.FileResult failure = rep.results().get(rep.results().size() - 1);
         assertEquals(seq, failure.lastSeqOrFailSeq);
         assertTrue(failure.reason.contains(reason), failure.reason);
+        VeriLogFormatException ex = assertThrows(VeriLogFormatException.class,
+                () -> new VeriLogReader().recoverChainState(dir, tm.dek32, tm.keyResolver));
+        assertEquals("format.chain_verification_failed", ex.getMessageKey());
+        assertTrue(ex.getMessage().contains(reason), ex.getMessage());
     }
 
     private static String writeChainFile(Path out, TestMaterial tm, String prevHash, long... sequences)
