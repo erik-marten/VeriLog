@@ -183,13 +183,8 @@ class VeriLogReaderE2ETest {
         Path f1 = dir.resolve("app-2026-01-01T00-00-00Z.vlog");
         Path f2 = dir.resolve("current.vlog");
 
-        writeVlogFile(f1, "VeriLog|v1", tm.dek32,
-                new EntrySpec(1, "0".repeat(64), "evt", OM.createObjectNode().put("a", 1))
-                , tm);
-
-        writeVlogFile(f2, "VeriLog|v1", tm.dek32,
-                new EntrySpec(1, "0".repeat(64), "evt", OM.createObjectNode().put("b", 2))
-                , tm);
+        String hash = writeChainFile(f1, tm, "0".repeat(64), 1, 2, 3);
+        writeChainFile(f2, tm, hash, 4, 5);
 
         VeriLogReader r = new VeriLogReader();
         DirectoryVerifyReport rep = r.verifyDirectory(dir, tm.dek32, tm.keyResolver, true);
@@ -197,6 +192,175 @@ class VeriLogReaderE2ETest {
         assertTrue(rep.allOk());
         assertEquals(2, rep.results().size());
         assertTrue(rep.results().stream().allMatch(x -> x.ok));
+        assertEquals(5, rep.results().get(1).lastSeqOrFailSeq);
+        assertTrue(r.verifyFile(f1, tm.dek32, tm.keyResolver).valid);
+        assertFalse(r.verifyFile(f2, tm.dek32, tm.keyResolver).valid);
+    }
+
+    @Test
+    void should_verify_one_file_directory_from_root() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-one-file");
+        writeChainFile(dir.resolve("current.vlog"), tm, "0".repeat(64), 1, 2, 3);
+
+        DirectoryVerifyReport rep = new VeriLogReader().verifyDirectory(dir, tm.dek32, tm.keyResolver);
+        assertTrue(rep.allOk());
+        assertEquals(3, rep.results().get(0).lastSeqOrFailSeq);
+    }
+
+    @Test
+    void should_order_three_files_by_first_sequence_despite_opposite_filenames() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-three-files");
+        Path first = dir.resolve("z.vlog");
+        Path second = dir.resolve("m.vlog");
+        Path third = dir.resolve("a.vlog");
+        String hash = writeChainFile(first, tm, "0".repeat(64), 1, 2);
+        hash = writeChainFile(second, tm, hash, 3, 4);
+        writeChainFile(third, tm, hash, 5, 6);
+
+        DirectoryVerifyReport rep = new VeriLogReader().verifyDirectory(dir, tm.dek32, tm.keyResolver);
+        assertTrue(rep.allOk());
+        assertEquals(first, rep.results().get(0).file);
+        assertEquals(second, rep.results().get(1).file);
+        assertEquals(third, rep.results().get(2).file);
+    }
+
+    @Test
+    void should_reject_cross_file_prev_hash_mismatch() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-cross-hash");
+        writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2);
+        writeChainFile(dir.resolve("b.vlog"), tm, "f".repeat(64), 3, 4);
+
+        assertDirectoryFailure(dir, tm, 3, "prevHash mismatch");
+    }
+
+    @Test
+    void should_reject_sequence_gap_at_file_boundary() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-boundary-gap");
+        String hash = writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2);
+        writeChainFile(dir.resolve("b.vlog"), tm, hash, 4, 5);
+
+        assertDirectoryFailure(dir, tm, 4, "not contiguous");
+    }
+
+    @Test
+    void should_reject_missing_middle_file() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-missing-middle");
+        String hash = writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2, 3);
+        writeChainFile(dir.resolve("c.vlog"), tm, hash, 7, 8, 9);
+
+        assertDirectoryFailure(dir, tm, 7, "not contiguous");
+    }
+
+    @Test
+    void should_reject_duplicate_starting_sequence() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-duplicate-start");
+        String hash = writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2);
+        writeChainFile(dir.resolve("b.vlog"), tm, hash, 1, 3);
+
+        assertDirectoryFailure(dir, tm, 1, "not contiguous");
+    }
+
+    @Test
+    void should_reject_overlapping_file_ranges() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-overlap");
+        String hash = writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2, 3, 4, 5);
+        writeChainFile(dir.resolve("b.vlog"), tm, hash, 4, 5, 6, 7, 8);
+
+        assertDirectoryFailure(dir, tm, 4, "not contiguous");
+    }
+
+    @Test
+    void should_reject_earliest_file_starting_after_one() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-no-root");
+        writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 4, 5);
+
+        assertDirectoryFailure(dir, tm, 4, "not contiguous");
+    }
+
+    @Test
+    void should_reject_two_independent_roots_in_one_directory() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-two-roots");
+        writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2);
+        writeChainFile(dir.resolve("b.vlog"), tm, "0".repeat(64), 1, 2);
+
+        assertDirectoryFailure(dir, tm, 1, "not contiguous");
+    }
+
+    @Test
+    void should_accept_header_only_active_file_without_resetting_chain() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-empty-current");
+        writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1, 2);
+        writeVlogFileRawEntries(dir.resolve("b.vlog"), "VeriLog|v1", tm.dek32);
+        writeVlogFileRawEntries(dir.resolve("current.vlog"), "VeriLog|v1", tm.dek32);
+
+        DirectoryVerifyReport rep = new VeriLogReader().verifyDirectory(dir, tm.dek32, tm.keyResolver);
+        assertTrue(rep.allOk());
+        assertEquals(3, rep.results().size());
+        assertEquals(2, rep.results().get(1).lastSeqOrFailSeq);
+        assertEquals(2, rep.results().get(2).lastSeqOrFailSeq);
+    }
+
+    @Test
+    void should_reject_authenticated_frame_sequence_that_disagrees_with_signed_json() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-json-seq-mismatch");
+        ObjectNode unsigned = buildUnsignedEntry(2, "0".repeat(64), tm.keyIdHex,
+                "evt", OM.createObjectNode().put("x", 1));
+        SignedPayload signed = signEntry(unsigned, tm, false);
+        writeVlogFileRawEntries(dir.resolve("a.vlog"), "VeriLog|v1", tm.dek32,
+                new RawEntry(1, signed.json));
+
+        assertDirectoryFailure(dir, tm, 1, "json seq mismatch");
+    }
+
+    @Test
+    void should_tolerate_partial_trailing_frame_only_in_current_file() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-partial-current");
+        String hash = writeChainFile(dir.resolve("a.vlog"), tm, "0".repeat(64), 1);
+        Path current = dir.resolve("current.vlog");
+        writeChainFile(current, tm, hash, 2);
+        Files.write(current, new byte[]{0, 1}, StandardOpenOption.APPEND);
+
+        assertTrue(new VeriLogReader().verifyDirectory(dir, tm.dek32, tm.keyResolver).allOk());
+
+        Path completed = dir.resolve("b.vlog");
+        Files.move(current, completed);
+        assertThrows(io.github.em.verilog.errors.VeriLogIoException.class,
+                () -> new VeriLogReader().verifyDirectory(dir, tm.dek32, tm.keyResolver));
+    }
+
+    private static void assertDirectoryFailure(Path dir, TestMaterial tm, long seq, String reason) throws Exception {
+        DirectoryVerifyReport rep = new VeriLogReader().verifyDirectory(dir, tm.dek32, tm.keyResolver);
+        assertFalse(rep.allOk());
+        DirectoryVerifyReport.FileResult failure = rep.results().get(rep.results().size() - 1);
+        assertEquals(seq, failure.lastSeqOrFailSeq);
+        assertTrue(failure.reason.contains(reason), failure.reason);
+    }
+
+    private static String writeChainFile(Path out, TestMaterial tm, String prevHash, long... sequences)
+            throws Exception {
+        RawEntry[] entries = new RawEntry[sequences.length];
+        for (int i = 0; i < sequences.length; i++) {
+            long seq = sequences[i];
+            ObjectNode unsigned = buildUnsignedEntry(seq, prevHash, tm.keyIdHex,
+                    "evt", OM.createObjectNode().put("x", seq));
+            SignedPayload signed = signEntry(unsigned, tm, false);
+            entries[i] = new RawEntry(seq, signed.json);
+            prevHash = signed.entryHashHex;
+        }
+        writeVlogFileRawEntries(out, "VeriLog|v1", tm.dek32, entries);
+        return prevHash;
     }
 
     // --------------------------------------------------------------------------------------------
