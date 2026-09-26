@@ -22,10 +22,9 @@ import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
-import java.util.function.Function;
-
-import static java.nio.file.Files.getLastModifiedTime;
 
 public final class VeriLogReader {
 
@@ -33,6 +32,10 @@ public final class VeriLogReader {
     private static final String ENTRY_HASH = "entryHash";
     private static final String CURRENT_VLOG = "current.vlog";
 
+    /**
+     * Verifies a standalone chain root, starting at sequence 1 and the zero previous hash.
+     * A middle rotated file must be verified with its preceding files via verifyDirectory.
+     */
     public VerifyReport verifyFile(Path vlogPath, byte[] dek32, PublicKeyResolver keyResolver)
             throws VeriLogException {
         return verifyFile(vlogPath, dek32, keyResolver, false);
@@ -48,14 +51,23 @@ public final class VeriLogReader {
         Objects.requireNonNull(vlogPath, "vlogPath");
         Objects.requireNonNull(dek32, "dek32");
         Objects.requireNonNull(keyResolver, "keyResolver");
-        final State s = new State();
+        return verifyFileWithState(vlogPath, dek32, keyResolver, tolerateTrailingPartialFrame, new State());
+    }
 
+    private VerifyReport verifyFileWithState(
+            Path vlogPath,
+            byte[] dek32,
+            PublicKeyResolver keyResolver,
+            boolean tolerateTrailingPartialFrame,
+            State s
+    ) throws VeriLogException {
         try (FramedFileReader r = new FramedFileReader(vlogPath)) {
             final Header h = readHeader(r, vlogPath);
 
             r.positionAtFirstFrame();
 
-            for (Frame f : r.frames(tolerateTrailingPartialFrame)) {
+            Frame f;
+            while ((f = r.readNextFrame(tolerateTrailingPartialFrame)) != null) {
                 VerifyReport failure = verifyOneFrame(f, s, h, dek32, keyResolver);
                 if (failure != null) return failure;
             }
@@ -265,6 +277,12 @@ public final class VeriLogReader {
     }
 
 
+    /**
+     * Verifies one continuous local chain across the directory's files. This detects
+     * internal deletion or reordering while later chain material remains available.
+     * Replacing the entire set with an older valid prefix requires an external trusted
+     * anchor to detect; the local chain alone does not provide rollback resistance.
+     */
     public DirectoryVerifyReport verifyDirectory(Path logDir, byte[] dek32, PublicKeyResolver keyResolver)
             throws VeriLogException {
         return verifyDirectory(logDir, dek32, keyResolver, true);
@@ -286,12 +304,20 @@ public final class VeriLogReader {
 
         var report = new DirectoryVerifyReport();
 
-        var files = listVlogFiles(logDir);
-        sortVlogFiles(files);
+        List<FileStart> files = new java.util.ArrayList<>();
+        for (Path file : listVlogFiles(logDir)) {
+            files.add(new FileStart(file, firstFrameSeq(file)));
+        }
+        files.sort(Comparator
+                .comparing((FileStart f) -> f.firstSeq == null)
+                .thenComparing(f -> f.firstSeq, Comparator.nullsLast(Long::compareTo))
+                .thenComparing(f -> f.path.getFileName().toString()));
 
-        for (Path f : files) {
+        State state = new State();
+        for (FileStart file : files) {
+            Path f = file.path;
             boolean tolerate = isCurrentVlog(f);
-            VerifyReport r = verifyFile(f, dek32, keyResolver, tolerate);
+            VerifyReport r = verifyFileWithState(f, dek32, keyResolver, tolerate, state);
 
             report.add(new DirectoryVerifyReport.FileResult(f, r.valid, r.seq, r.reason));
 
@@ -313,13 +339,24 @@ public final class VeriLogReader {
         return files;
     }
 
-    private static void sortVlogFiles(java.util.List<Path> files) {
-        // One comparator instead of two sorts
-        files.sort(
-                java.util.Comparator
-                        .comparing((Path p) -> p.getFileName().toString().equals(CURRENT_VLOG)) // false first, current last
-                        .thenComparing(p -> p.getFileName().toString())
-        );
+    private static final class FileStart {
+        final Path path;
+        final Long firstSeq; // null for a header-only file (or tolerated partial current frame)
+
+        FileStart(Path path, Long firstSeq) {
+            this.path = path;
+            this.firstSeq = firstSeq;
+        }
+    }
+
+    private static Long firstFrameSeq(Path file) throws VeriLogException {
+        try (FramedFileReader reader = new FramedFileReader(file)) {
+            reader.positionAtFirstFrame();
+            Frame first = reader.readNextFrame(isCurrentVlog(file));
+            return first == null ? null : first.seq;
+        } catch (java.io.IOException e) {
+            throw new VeriLogIoException("io.read_failed", e, file.toString());
+        }
     }
 
     private static boolean isCurrentVlog(Path p) {

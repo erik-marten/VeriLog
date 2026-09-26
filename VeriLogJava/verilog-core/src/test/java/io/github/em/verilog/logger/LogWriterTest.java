@@ -1,8 +1,12 @@
 package io.github.em.verilog.logger;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.em.verilog.crypto.XChaCha20Poly1305;
 import io.github.em.verilog.errors.VeriLogIoException;
 import io.github.em.verilog.io.FramedLogFile;
 import io.github.em.verilog.logger.utils.TestConfigBuilder;
+import io.github.em.verilog.reader.Frame;
+import io.github.em.verilog.reader.FramedFileReader;
 import io.github.em.verilog.sign.LogSigner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -11,8 +15,13 @@ import org.mockito.MockedStatic;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -90,6 +99,35 @@ final class LogWriterTest {
         try (var stream = Files.list(tmp)) {
             long count = stream.filter(Files::isRegularFile).count();
             assertTrue(count >= 2, "should create at least one rotated file plus current");
+        }
+
+        var entries = new ArrayList<Frame>();
+        try (var stream = Files.list(tmp)) {
+            for (Path path : stream.filter(p -> p.toString().endsWith(".vlog"))
+                    .collect(java.util.stream.Collectors.toList())) {
+                try (FramedFileReader file = new FramedFileReader(path)) {
+                    file.positionAtFirstFrame();
+                    Frame frame;
+                    while ((frame = file.readNextFrame(false)) != null) entries.add(frame);
+                }
+            }
+        }
+        entries.sort(Comparator.comparingLong(f -> f.seq));
+        assertEquals(40, entries.size());
+        String previousHash = "0".repeat(64);
+        var mapper = new ObjectMapper();
+        byte[] aadPrefix = cfg.getAadPrefix().getBytes(StandardCharsets.UTF_8);
+        for (int i = 0; i < entries.size(); i++) {
+            Frame frame = entries.get(i);
+            assertEquals(i + 1, frame.seq);
+            byte[] aad = ByteBuffer.allocate(aadPrefix.length + 11).order(ByteOrder.BIG_ENDIAN)
+                    .put(aadPrefix).put((byte) 0).putLong(frame.seq).put((byte) 0)
+                    .put(frame.type).array();
+            var signed = mapper.readTree(XChaCha20Poly1305.decrypt(
+                    cfg.getEncryptionKey(), frame.nonce24, frame.ct, aad));
+            assertEquals(frame.seq, signed.get("seq").asLong());
+            assertEquals(previousHash, signed.get("prevHash").asText());
+            previousHash = signed.get("entryHash").asText();
         }
     }
 
