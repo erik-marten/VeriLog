@@ -32,6 +32,7 @@ public final class VeriLogReader {
     private final ObjectMapper om = new ObjectMapper();
     private static final String ENTRY_HASH = "entryHash";
     private static final String CURRENT_VLOG = "current.vlog";
+    private static final String DEFAULT_AAD_PREFIX = "VeriLog|v1";
 
     /**
      * Verifies a standalone chain root, starting at sequence 1 and the zero previous hash.
@@ -149,21 +150,32 @@ public final class VeriLogReader {
     // Header
     // ---------------------------
 
+    /** Returns the effective header AAD using the same legacy fallback as verification. */
+    public String readAadPrefix(Path vlogPath) throws VeriLogException {
+        Objects.requireNonNull(vlogPath, "vlogPath");
+        try (FramedFileReader reader = new FramedFileReader(vlogPath)) {
+            return parseAadPrefix(reader, vlogPath);
+        }
+    }
+
     private Header readHeader(FramedFileReader r, Path vlogPath) throws VeriLogException {
+        return new Header(parseAadPrefix(r, vlogPath).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String parseAadPrefix(FramedFileReader r, Path vlogPath) throws VeriLogException {
         final byte[] raw = r.rawHeaderJsonBytes();
         if (raw == null || raw.length == 0) {
             throw new VeriLogFormatException("format.missing_header", vlogPath.toString());
         }
         final JsonNode header;
         try {
-            String headerJson = new String(r.rawHeaderJsonBytes(), StandardCharsets.UTF_8);
+            String headerJson = new String(raw, StandardCharsets.UTF_8);
             header = om.readTree(headerJson);
         } catch (JsonProcessingException e) {
             throw new VeriLogJsonException("json.invalid_header", e);
         }
 
-        String aadPrefix = header.has("aad") ? header.get("aad").asText() : "VeriLog|v1";
-        return new Header(aadPrefix.getBytes(StandardCharsets.UTF_8));
+        return header.has("aad") ? header.get("aad").asText() : DEFAULT_AAD_PREFIX;
     }
 
     private static final class Header {

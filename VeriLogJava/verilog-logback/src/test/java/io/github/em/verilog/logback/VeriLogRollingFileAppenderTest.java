@@ -108,10 +108,13 @@ class VeriLogRollingFileAppenderTest {
         Files.move(active, tempDir.resolve("older.vlog"));
 
         VeriLogRollingFileAppender second = appender(active, 10_000);
+        second.setAadPrefix("other");
         second.start();
+        assertTrue(second.isStarted());
         second.doAppend(event());
         second.stop();
         assertEquals(1, headerCount(active));
+        assertEquals("other", reader.readAadPrefix(active));
         assertEquals(3, recover(tempDir, active).nextSeq());
         assertTrue(reader.verifyDirectory(tempDir, material.dek, material.resolver).allOk());
     }
@@ -136,6 +139,48 @@ class VeriLogRollingFileAppenderTest {
         second.stop();
         assertEquals(3, recover(tempDir, active).nextSeq());
         assertTrue(reader.verifyDirectory(tempDir, material.dek, material.resolver).allOk());
+    }
+
+    @Test
+    void resume_rejects_mismatched_aad_without_opening_or_modifying_active_file() throws Exception {
+        Path active = tempDir.resolve("audit.vlog");
+        VeriLogRollingFileAppender first = appender(active, 10_000);
+        first.start();
+        first.doAppend(event());
+        first.stop();
+        byte[] before = Files.readAllBytes(active);
+
+        VeriLogRollingFileAppender mismatched = appender(active, 10_000);
+        mismatched.setAadPrefix("other");
+        mismatched.start();
+        assertFalse(mismatched.isStarted());
+        assertNull(mismatched.getOutputStream());
+        mismatched.doAppend(event());
+        assertArrayEquals(before, Files.readAllBytes(active));
+        assertEquals(1, headerCount(active));
+        assertEquals(2, recover(tempDir, active).nextSeq());
+        assertTrue(mismatched.getContext().getStatusManager().getCopyOfStatusList().stream()
+                .anyMatch(status -> status.getMessage().contains("AAD prefix does not match existing VLOG header")));
+    }
+
+    @Test
+    void mismatched_aad_does_not_truncate_a_partial_active_tail() throws Exception {
+        Path active = tempDir.resolve("audit.vlog");
+        VeriLogRollingFileAppender first = appender(active, 10_000);
+        first.start();
+        first.doAppend(event());
+        first.stop();
+        Files.write(active, ByteBuffer.allocate(9).putInt(100).put(new byte[5]).array(),
+                StandardOpenOption.APPEND);
+        byte[] before = Files.readAllBytes(active);
+
+        VeriLogRollingFileAppender mismatched = appender(active, 10_000);
+        mismatched.setAadPrefix("other");
+        mismatched.start();
+        assertFalse(mismatched.isStarted());
+        assertNull(mismatched.getOutputStream());
+        assertArrayEquals(before, Files.readAllBytes(active));
+        assertEquals(2, recover(tempDir, active).nextSeq());
     }
 
     @Test

@@ -136,8 +136,15 @@ public final class VeriLogRollingFileAppender extends RollingFileAppender<ILoggi
             }
             rejectCompressedArchives(directory);
             boolean resume = Files.exists(active) && Files.size(active) > 0;
-            HashChainState state = new VeriLogReader().recoverChainState(directory, active, dek32, keyResolver);
-            if (resume) FramedTailRepair.truncateIncompleteTail(active);
+            VeriLogReader reader = new VeriLogReader();
+            HashChainState state = reader.recoverChainState(directory, active, dek32, keyResolver);
+            if (resume) {
+                if (!aadPrefix.equals(reader.readAadPrefix(active))) {
+                    addError("VeriLog AAD prefix does not match existing VLOG header for " + active);
+                    return;
+                }
+                FramedTailRepair.truncateIncompleteTail(active);
+            }
 
             VeriLogEncoder encoder = new VeriLogEncoder();
             encoder.setContext(getContext());
