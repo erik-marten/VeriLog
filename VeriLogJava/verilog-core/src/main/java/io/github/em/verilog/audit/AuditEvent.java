@@ -22,8 +22,10 @@ import java.util.Objects;
  * An immutable, framework-independent event ready for VeriLog's cryptographic pipeline.
  *
  * <p>Event data is limited to JSON-compatible values supported by VeriLog's canonical
- * serializer: string-keyed maps, lists, strings, booleans, signed integral values up to
- * 64 bits, and {@code null}. Maps and lists are copied recursively.</p>
+ * serializer: string-keyed maps, lists, {@link String}, {@link Boolean}, {@link Byte},
+ * {@link Short}, {@link Integer}, {@link Long}, and {@code null}. Other {@link Number}
+ * implementations, including floating-point types and {@code BigInteger}, are not supported.
+ * Maps and lists are copied recursively.</p>
  */
 public final class AuditEvent {
 

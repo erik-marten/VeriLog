@@ -170,6 +170,7 @@ public final class VeriLoggerConfig {
         Objects.requireNonNull(logDir, "logDir");
         Objects.requireNonNull(actor, "actor");
         Objects.requireNonNull(signer, "signer");
+        if (actor.isBlank()) throw new IllegalArgumentException("actor must not be blank");
         if (filePrefix == null || filePrefix.isBlank()) throw new IllegalArgumentException("filePrefix");
         if (currentFileName == null || currentFileName.isBlank()) throw new IllegalArgumentException("currentFileName");
         if (encryptionKey == null || encryptionKey.length != 32)

@@ -27,6 +27,12 @@ public final class SignedEntryFactory {
 
     private final ObjectMapper om = new ObjectMapper();
 
+    /**
+     * Compatibility overload for the original structured arguments.
+     *
+     * <p>This method delegates through {@link AuditEvent} and therefore applies
+     * {@code AuditEvent}'s validation and supported-data rules.</p>
+     */
     public byte[] buildSignedEntryJsonUtf8(
             HashChainState chain,
             LogSigner signer,
