@@ -33,7 +33,7 @@ tasks.named("shadowJar") {
     dependsOn tasks.named("generateLicense")
 
     from(layout.buildDirectory.file("generated/LICENSE")) { into("META-INF") }
-    from(rootProject.file("NOTICE")) { into("META-INF"); rename { "NOTICE-VERILOGGER" } }
+    from(rootProject.file("NOTICE")) { into("META-INF"); rename { "NOTICE-VERILOG" } }
     from(rootProject.file("THIRD-PARTY-LICENSES")) { into("META-INF") }
 
     manifest {
