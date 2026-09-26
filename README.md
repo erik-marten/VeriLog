@@ -64,7 +64,7 @@ logger.atInfo()
         .log("User {} logged in", username);
 ```
 
-Configure `VeriLogRollingFileAppender` programmatically with a producer actor, signer, public-key resolver, 32-byte DEK, AAD prefix, active `.vlog` file, and a started Logback rolling policy. The appender creates and configures `VeriLogEncoder`; application code does not configure that encoder directly. The [runnable example](examples/LogbackExample/README.md) shows the complete bootstrap and directory verification. The older `VeriLogger` in `verilog-core` remains temporary pre-1.0 migration code; [`examples/TestVerilogJava`](examples/TestVerilogJava) uses that older path.
+Configure `VeriLogRollingFileAppender` programmatically with a producer actor, signer, public-key resolver, 32-byte DEK, AAD prefix, active `.vlog` file, and a started Logback rolling policy. The appender creates and configures `VeriLogEncoder`; application code does not configure that encoder directly. The [runnable example](examples/LogbackExample/README.md) shows the complete bootstrap and directory verification.
 
 The audit semantics are explicit:
 
