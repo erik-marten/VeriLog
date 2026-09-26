@@ -321,6 +321,23 @@ class VeriLogReaderE2ETest {
     }
 
     @Test
+    void should_treat_only_the_designated_zero_byte_active_file_as_new() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path dir = Files.createTempDirectory("vlog-zero-active");
+        String hash = writeChainFile(dir.resolve("rotated.vlog"), tm, "0".repeat(64), 1);
+        Path active = dir.resolve("audit.vlog");
+        Files.createFile(active);
+
+        HashChainState recovered = new VeriLogReader().recoverChainState(dir, active, tm.dek32, tm.keyResolver);
+        assertEquals(2, recovered.nextSeq());
+        assertEquals(hash, recovered.prevHashHex());
+
+        Files.move(active, dir.resolve("empty-rotated.vlog"));
+        assertThrows(VeriLogIoException.class,
+                () -> new VeriLogReader().recoverChainState(dir, active, tm.dek32, tm.keyResolver));
+    }
+
+    @Test
     void should_reject_authenticated_frame_sequence_that_disagrees_with_signed_json() throws Exception {
         TestMaterial tm = new TestMaterial();
         Path dir = Files.createTempDirectory("vlog-json-seq-mismatch");

@@ -21,28 +21,27 @@ class VeriLoggerTest {
 
         VeriLoggerConfig cfg =
                 TestConfigBuilder.configBuilder(dir)
-                        .queueCapacity(1) // flush frequently for tests
+                        .queueCapacity(64)
                         .flushEveryMs(10)
                         .rotateOnStartup(true)
                         .build();
 
-        try (VeriLogger logger = VeriLogger.create(cfg)) {
+        VeriLogger logger = VeriLogger.create(cfg);
+        try {
             for (int i = 0; i < 50; i++) {
                 logger.info("hello-" + i);
             }
 
-            // Give writer a moment to drain queue
-            waitUntil(() -> logger.writtenCount() >= 1, Duration.ofSeconds(2));
-
-            assertTrue(logger.writtenCount() >= 1);
+            logger.close();
+            assertEquals(50, logger.writtenCount());
             assertEquals(0, logger.droppedCount());
-        }
 
-        // After close, log() is a no-op (should not throw)
-        try (VeriLogger logger2 = VeriLogger.create(cfg)) {
-            logger2.close();
-            logger2.info("should-not-throw");
-            // no assertion needed; success = no exception
+            assertDoesNotThrow(() -> logger.info("should-not-throw"));
+            assertEquals(50, logger.writtenCount());
+            assertEquals(0, logger.droppedCount());
+            assertDoesNotThrow(() -> { logger.close(); });
+        } finally {
+            logger.close();
         }
     }
 

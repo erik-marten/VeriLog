@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.em.verilog.errors.*;
+import io.github.em.verilog.io.VlogHeaderCodec;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -14,9 +16,12 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -33,6 +38,21 @@ public class VeriLogReaderTest {
         reader = new VeriLogReader();
         dek32 = new byte[32];
         resolver = keyId -> null; // default: unknown key
+    }
+
+    @Test
+    void read_aad_prefix_uses_verification_header_semantics(@TempDir Path directory) throws Exception {
+        Path current = directory.resolve("current.vlog");
+        Files.write(current, new VlogHeaderCodec().encode("custom", Instant.EPOCH));
+        assertEquals("custom", reader.readAadPrefix(current));
+
+        byte[] legacyJson = "{}".getBytes(StandardCharsets.UTF_8);
+        byte[] legacyHeader = ByteBuffer.allocate(8 + legacyJson.length).order(ByteOrder.BIG_ENDIAN)
+                .put(new byte[]{'V', 'L', 'O', 'G'}).put((byte) 1).put((byte) 1)
+                .putShort((short) legacyJson.length).put(legacyJson).array();
+        Files.write(current, legacyHeader);
+        assertEquals("VeriLog|v1", reader.readAadPrefix(current));
+        assertTrue(reader.verifyFile(current, dek32, resolver).valid);
     }
 
     @Test
@@ -343,4 +363,3 @@ public class VeriLogReaderTest {
         }
     }
 }
-

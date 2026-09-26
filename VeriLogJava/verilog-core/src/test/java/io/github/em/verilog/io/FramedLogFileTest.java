@@ -251,7 +251,7 @@ public class FramedLogFileTest {
     }
 
     @Test
-    void should_break_on_payload_too_small() throws Exception {
+    void should_reject_payload_too_small_without_truncating() throws Exception {
         Path file = tempDir.resolve("payload-too-small.vlog");
         byte[] dek = new byte[32];
 
@@ -268,14 +268,13 @@ public class FramedLogFileTest {
             ch.write(buf);
         }
 
-        // Reopen → scanNextSeq() should break
-        try (FramedLogFile f2 = FramedLogFile.openOrCreate(file, dek, "aad")) {
-            assertEquals(1, f2.nextSeq()); // no valid frames found
-        }
+        byte[] before = Files.readAllBytes(file);
+        assertThrows(VeriLogIoException.class, () -> FramedLogFile.openOrCreate(file, dek, "aad"));
+        assertArrayEquals(before, Files.readAllBytes(file));
     }
 
     @Test
-    void should_break_on_payload_too_large() throws Exception {
+    void should_reject_payload_too_large_without_truncating() throws Exception {
         Path file = tempDir.resolve("payload-too-large.vlog");
         byte[] dek = new byte[32];
 
@@ -291,9 +290,8 @@ public class FramedLogFileTest {
             ch.write(buf);
         }
 
-        try (FramedLogFile f2 = FramedLogFile.openOrCreate(file, dek, "aad")) {
-            assertEquals(1, f2.nextSeq());
-        }
+        byte[] before = Files.readAllBytes(file);
+        assertThrows(VeriLogIoException.class, () -> FramedLogFile.openOrCreate(file, dek, "aad"));
+        assertArrayEquals(before, Files.readAllBytes(file));
     }
 }
-
