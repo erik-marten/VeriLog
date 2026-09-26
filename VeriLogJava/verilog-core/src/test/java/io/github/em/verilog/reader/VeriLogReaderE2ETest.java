@@ -6,6 +6,7 @@ import io.github.em.verilog.CanonicalJson;
 import io.github.em.verilog.CryptoUtil;
 import io.github.em.verilog.crypto.XChaCha20Poly1305;
 import io.github.em.verilog.errors.VeriLogCryptoException;
+import io.github.em.verilog.io.FramedLogFile;
 import org.bouncycastle.asn1.nist.NISTNamedCurves;
 import org.bouncycastle.crypto.digests.SHA256Digest;
 import org.bouncycastle.crypto.generators.ECKeyPairGenerator;
@@ -30,6 +31,23 @@ class VeriLogReaderE2ETest {
 
     private static final ObjectMapper OM = new ObjectMapper();
     private static final SecureRandom RNG = new SecureRandom();
+
+    @Test
+    void should_verify_signed_entry_written_by_framed_log_file() throws Exception {
+        TestMaterial tm = new TestMaterial();
+        Path file = Files.createTempDirectory("vlog-writer-reader").resolve("current.vlog");
+        ObjectNode unsigned = buildUnsignedEntry(1, "0".repeat(64), tm.keyIdHex,
+                "evt", OM.createObjectNode().put("x", 1));
+        SignedPayload signed = signEntry(unsigned, tm, false);
+
+        try (FramedLogFile writer = FramedLogFile.openOrCreate(file, tm.dek32, "VeriLog|v1")) {
+            writer.appendEncryptedJson(FramedLogFile.TYPE_LOG, 1, signed.json);
+        }
+
+        VerifyReport report = new VeriLogReader().verifyFile(file, tm.dek32, tm.keyResolver);
+        assertTrue(report.valid, report.reason);
+        assertEquals(1, report.seq);
+    }
 
     @Test
     void should_verify_ok_when_file_contains_valid_signed_hash_chained_entries() throws Exception {
