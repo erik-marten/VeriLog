@@ -10,9 +10,6 @@ permissions:
 jobs:
   build-test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: VeriLogJava
 
     steps:
       - uses: actions/checkout@v4
@@ -22,18 +19,20 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: |
+            11
+            17
 
       - uses: gradle/actions/setup-gradle@v3
 
       - name: Build + tests + coverage
-        run: ./gradlew --no-daemon clean test jacocoTestReport build
+        run: ./gradlew --no-daemon -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_11_X64 clean build
 
       - name: Upload build artifacts (JARs)
         uses: actions/upload-artifact@v4
         with:
           name: verilogjava-build
-          path: VeriLogJava/build/libs/*.jar
+          path: VeriLogJava/verilog-*/build/libs/*.jar
           if-no-files-found: error
 
       - name: Upload JaCoCo report
@@ -41,16 +40,14 @@ jobs:
         with:
           name: jacoco-report
           path: |
-            VeriLogJava/build/reports/jacoco/test/html/**
-            VeriLogJava/build/reports/jacoco/test/jacocoTestReport.xml
+            VeriLogJava/verilog-core/build/reports/jacoco/test/html/**
+            VeriLogJava/verilog-core/build/reports/jacoco/test/jacocoTestReport.xml
+            VeriLogJava/verilog-cli/build/reports/jacoco/test/html/**
+            VeriLogJava/verilog-cli/build/reports/jacoco/test/jacocoTestReport.xml
 
   sonar:
     runs-on: ubuntu-latest
     needs: build-test
-
-    defaults:
-      run:
-        working-directory: VeriLogJava
 
     steps:
       - uses: actions/checkout@v4
@@ -60,12 +57,14 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: |
+            11
+            17
 
       - uses: gradle/actions/setup-gradle@v3
 
       - name: Build + coverage (for Sonar)
-        run: ./gradlew --no-daemon clean test jacocoTestReport
+        run: ./gradlew --no-daemon -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_11_X64 clean test jacocoTestReport
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v2
