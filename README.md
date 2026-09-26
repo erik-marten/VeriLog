@@ -1,190 +1,99 @@
-# VeriLog 
+# VeriLog
 
 [![SonarQube Cloud](https://sonarcloud.io/images/project_badges/sonarcloud-light.svg)](https://sonarcloud.io/summary/new_code?id=erik-marten_VeriLog)
 
-**VeriLog** is a cryptographically verifiable, tamper-evident audit logging library **currently**  only for Java. A .NET equivalent plan is in breakdown.
-
-It provides:
-
--  **Hash-chained audit entries**
-- **ECDSA signatures (P-256)**
--  **Framed binary log format**
--  **Authenticated encryption (XChaCha20-Poly1305)**
-- **Log rotation support**
-- **End-to-end verification**
-
-VeriLog is designed for systems that require **strong integrity guarantees**, such as:
-
-- Security-sensitive applications
-- Compliance logging
-- Financial systems
-- Infrastructure audit trails
-- High-assurance backends
-
-------
-
-## Why VeriLog?
-
-Traditional logs can be:
-
-- Edited retroactively
-- Reordered
-- Truncated
-- Forged
-
-VeriLog prevents this by combining:
-
-### Hash chaining
-
-Each entry references the hash of the previous entry.
-
-If one entry changes → the entire chain breaks.
-
-### Digital signatures
-
-Each entry is signed using ECDSA (P-256).
-
-You can cryptographically prove:
-
-- Who created the entry
-- That it has not been modified
-
-### Authenticated encryption
-
-Log files are encrypted using XChaCha20-Poly1305.
-
-This ensures:
-
-- Confidentiality
-- Integrity
-- Tamper detection at file level
-
-------
+VeriLog is a Java library for cryptographically verifiable audit logs. It signs P-256 audit entries, links them with a hash chain, frames them in `.vlog` files, and encrypts them with XChaCha20-Poly1305. A reader verifies signatures, sequence and chain continuity, and authenticated encryption across the available files.
 
 ## Java modules and build
 
-The Gradle build lives in `VeriLogJava/` and contains three modules:
+The Gradle build lives in `VeriLogJava/`:
 
-| Module | Contents |
+| Module | Purpose |
 | --- | --- |
-| `verilog-core` | Framework-independent crypto, framing, signing, readers, verification, and errors. The existing custom logger remains here temporarily. |
-| `verilog-cli` | The verification CLI, depending on `verilog-core`. |
-| `verilog-logback` | A library module depending on `verilog-core`, reserved for future Logback integration. `VeriLogEncoder` is not implemented yet. |
+| `verilog-core` | Framework-independent cryptography, framing, signing, chain state, and verification. |
+| `verilog-logback` | Implemented SLF4J/Logback integration. `VeriLogRollingFileAppender` manages recovery and Logback file rotation; `VeriLogEncoder` converts marked events into signed and encrypted frames. |
+| `verilog-cli` | Command-line verification using `verilog-core`. |
 
-`verilog-core` has no SLF4J or Logback dependency. Existing Java packages and the `.vlog` format are preserved.
-
-Use JDK 17 or newer to run Gradle and install JDK 11 for compilation and tests. From the repository root:
+`verilog-core` has no SLF4J or Logback dependency. Use JDK 17 or newer to run Gradle and install JDK 11 for compilation and tests. From the repository root:
 
 ```sh
-./gradlew build
+./gradlew clean build
 ```
 
-This builds all modules, runs their tests and coverage checks, and creates the executable CLI JAR at `VeriLogJava/verilog-cli/build/libs/verilog-cli-1.0-SNAPSHOT-all.jar`. The wrapper also works from `VeriLogJava/`.
+The build runs the module tests and coverage checks and creates an executable CLI JAR at `VeriLogJava/verilog-cli/build/libs/verilog-cli-1.0-SNAPSHOT-all.jar`. For a complete, runnable logging and verification bootstrap, see [`examples/LogbackExample`](examples/LogbackExample/README.md).
 
-Run verification through Gradle, replacing the example key and file values:
-
-```sh
-./gradlew :verilog-cli:run --args="verify --file logs/current.vlog --dek-hex <64-hex-digits> --pub public.pem"
-```
-
-Paths passed through Gradle are relative to `VeriLogJava/`, preserving the existing CLI launch behavior.
-
-Or run the executable JAR with Java 11 or newer:
+To verify an existing chain with the CLI, provide its protected DEK and the corresponding public key:
 
 ```sh
 java -jar VeriLogJava/verilog-cli/build/libs/verilog-cli-1.0-SNAPSHOT-all.jar \
-  verify --file logs/current.vlog --dek-hex "$VERILOG_DEK_HEX" --pub public.pem
+  verify --dir logs --dek-hex "$VERILOG_DEK_HEX" --pub public.pem
 ```
 
-------
+## Architecture
 
-## Architecture Overview
-
-```
+```text
 Application
     ↓
-SignedEntryFactory
+SLF4J
     ↓
-HashChainState
+Logback
     ↓
-FramedLogFile
+VeriLogRollingFileAppender
     ↓
-XChaCha20-Poly1305
+VeriLogEncoder
     ↓
-Disk
+AuditEvent
+    ↓
+sign + hash-chain + encrypt
+    ↓
+Logback-managed .vlog files
 ```
 
-Each layer enforces a specific security property:
+Logback owns logging. VeriLog owns cryptography. The appender recovers and verifies the local chain before opening the active file. Its managed encoder signs and encrypts explicitly marked events, while Logback controls the rolling file lifecycle.
 
-| Layer           | Guarantees                  |
-| --------------- | --------------------------- |
-| Hash chain      | Forward integrity           |
-| ECDSA signature | Authenticity                |
-| AEAD encryption | Confidentiality + integrity |
-| Framing         | Structural validation       |
+## Application usage
 
-------
-
-## Example (High-Level)
+After programmatic bootstrap attaches the VeriLog appender to the corresponding Logback logger, application code obtains its logger through SLF4J. An unmarked call remains an ordinary log event and produces no VeriLog frame:
 
 ```java
-VeriLogger logger = VeriLogger.builder()
-    .logDir(Path.of("logs"))
-    .encryptionKey(key32Bytes)
-    .signer(signer)
-    .build();
+org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger("example-service");
+logger.info("Application started");
 
-logger.log("user.login", Map.of(
-    "userId", "1234",
-    "ip", "10.0.0.5"
-));
+logger.atInfo()
+        .addKeyValue("verilog.eventType", "USER_LOGIN")
+        .log("User {} logged in", username);
 ```
 
-Later:
+Configure `VeriLogRollingFileAppender` programmatically with a producer actor, signer, public-key resolver, 32-byte DEK, AAD prefix, active `.vlog` file, and a started Logback rolling policy. The appender creates and configures `VeriLogEncoder`; application code does not configure that encoder directly. The [runnable example](examples/LogbackExample/README.md) shows the complete bootstrap and directory verification. The older `VeriLogger` in `verilog-core` remains temporary pre-1.0 migration code; [`examples/TestVerilogJava`](examples/TestVerilogJava) uses that older path.
 
-```java
-VeriLogReader.verifyDirectory(Path.of("logs"));
-```
+The audit semantics are explicit:
 
-If anything was modified, verification fails.
+| Field | Meaning |
+| --- | --- |
+| `actor` | Static producer/service identity configured on the integration. It is not inferred from logger name, thread, MDC, log level, or message. |
+| `eventType` | The value of explicit SLF4J 2 key/value metadata named `verilog.eventType`. Only events with that metadata become VeriLog entries. |
+| `level` | Normal Logback severity metadata, such as `INFO`. It is not a security semantic and never supplies `eventType`. |
 
-------
+Security material is currently supplied as typed Java objects during programmatic Logback bootstrap. An XML-only configuration cannot provide those objects with the current API; XML-only bootstrap remains a separate design task.
 
-## Security Model
+## Security boundary and lifecycle
 
-VeriLog assumes:
+The cryptographic guarantee starts when an event reaches the VeriLog integration. Events removed earlier by Logback filters or routing, or by upstream asynchronous behavior, never enter the cryptographic chain. Operators must account for those paths when deciding which events must be audited.
 
-- The signing key is protected.
-- The encryption key is protected.
-- Attackers may have read/write access to log files.
-- Attackers may attempt to:
-  - Modify entries
-  - Remove entries
-  - Insert fake entries
-  - Reorder entries
+Use a single JVM per logical chain, `append=true`, `prudent=false`, and uncompressed `.vlog` rotation. Restart recovery needs the full local chain history from sequence 1: both the active file and every rotated chain file must remain available. Do not configure bounded retention that deletes the chain root. The appender verifies that history on startup and repairs an incomplete tail only in the active file.
 
-VeriLog guarantees detection of such tampering.
+VeriLog detects mutation of existing material and insertion or reordering of chain entries. It detects internal deletion when later chain material remains. A whole-set rollback to an older valid prefix cannot be detected by the local chain alone; that requires external trusted state. Trusted anchors or checkpoints are a future solution for rollback detection.
 
-------
+Protect the signing key and DEK, and preserve the public keys needed to verify historical entries. The example generates fresh in-memory keys only to demonstrate the integration; production key storage and rotation are application responsibilities.
 
 ## Status
 
-**!** Early stage.
-APIs may change until `1.0.0`.
-
------
+The project is pre-1.0; APIs may change before `1.0.0`.
 
 ## License
 
-Copyright 2026 Erik Marten
+Copyright 2026 Erik Marten.
 
-This project is licensed under the Apache License 2.0.
-
-You may use, modify, and distribute this software in accordance with the License.
-A copy of the License is provided in the LICENSE file.
-
-This software provides cryptographic functionality. Users are responsible
-for ensuring compliance with all applicable laws and regulations regarding
-the use, distribution, and export of cryptographic software.
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE). This software provides cryptographic functionality. Users are responsible for ensuring compliance with applicable laws and regulations concerning its use, distribution, and export.
 
 Distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
