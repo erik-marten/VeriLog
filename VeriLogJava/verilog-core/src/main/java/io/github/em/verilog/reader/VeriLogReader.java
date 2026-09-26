@@ -299,7 +299,7 @@ public final class VeriLogReader {
             boolean stopOnFirstFailure
     ) throws VeriLogException {
 
-        return verifyDirectoryWithState(logDir, dek32, keyResolver, stopOnFirstFailure).report;
+        return verifyDirectoryWithState(logDir, logDir.resolve(CURRENT_VLOG), dek32, keyResolver, stopOnFirstFailure).report;
     }
 
     /**
@@ -308,7 +308,17 @@ public final class VeriLogReader {
      */
     public HashChainState recoverChainState(Path logDir, byte[] dek32, PublicKeyResolver keyResolver)
             throws VeriLogException {
-        DirectoryTraversal traversal = verifyDirectoryWithState(logDir, dek32, keyResolver, true);
+        return recoverChainState(logDir, logDir.resolve(CURRENT_VLOG), dek32, keyResolver);
+    }
+
+    /**
+     * Recovers from a complete chain root. Only {@code activeFile} may have an
+     * incomplete trailing frame or be zero length. Retention that removes the
+     * chain root while later files remain makes recovery fail.
+     */
+    public HashChainState recoverChainState(Path logDir, Path activeFile, byte[] dek32,
+                                            PublicKeyResolver keyResolver) throws VeriLogException {
+        DirectoryTraversal traversal = verifyDirectoryWithState(logDir, activeFile, dek32, keyResolver, true);
         if (!traversal.report.allOk()) {
             DirectoryVerifyReport.FileResult failure = traversal.report.results()
                     .get(traversal.report.results().size() - 1);
@@ -333,11 +343,13 @@ public final class VeriLogReader {
 
     private DirectoryTraversal verifyDirectoryWithState(
             Path logDir,
+            Path activeFile,
             byte[] dek32,
             PublicKeyResolver keyResolver,
             boolean stopOnFirstFailure
     ) throws VeriLogException {
         Objects.requireNonNull(logDir, "logDir");
+        Objects.requireNonNull(activeFile, "activeFile");
         Objects.requireNonNull(dek32, "dek32");
         Objects.requireNonNull(keyResolver, "keyResolver");
 
@@ -345,7 +357,8 @@ public final class VeriLogReader {
 
         List<FileStart> files = new java.util.ArrayList<>();
         for (Path file : listVlogFiles(logDir)) {
-            files.add(new FileStart(file, firstFrameSeq(file)));
+            boolean active = samePath(file, activeFile);
+            files.add(new FileStart(file, active && isEmpty(file) ? null : firstFrameSeq(file, active)));
         }
         files.sort(Comparator
                 .comparing((FileStart f) -> f.firstSeq == null)
@@ -355,8 +368,10 @@ public final class VeriLogReader {
         State state = new State();
         for (FileStart file : files) {
             Path f = file.path;
-            boolean tolerate = isCurrentVlog(f);
-            VerifyReport r = verifyFileWithState(f, dek32, keyResolver, tolerate, state);
+            boolean active = samePath(f, activeFile);
+            VerifyReport r = active && isEmpty(f)
+                    ? VerifyReport.success(state.lastOk)
+                    : verifyFileWithState(f, dek32, keyResolver, active, state);
 
             report.add(new DirectoryVerifyReport.FileResult(f, r.valid, r.seq, r.reason));
 
@@ -388,18 +403,26 @@ public final class VeriLogReader {
         }
     }
 
-    private static Long firstFrameSeq(Path file) throws VeriLogException {
+    private static Long firstFrameSeq(Path file, boolean tolerateTrailingPartial) throws VeriLogException {
         try (FramedFileReader reader = new FramedFileReader(file)) {
             reader.positionAtFirstFrame();
-            Frame first = reader.readNextFrame(isCurrentVlog(file));
+            Frame first = reader.readNextFrame(tolerateTrailingPartial);
             return first == null ? null : first.seq;
         } catch (java.io.IOException e) {
             throw new VeriLogIoException("io.read_failed", e, file.toString());
         }
     }
 
-    private static boolean isCurrentVlog(Path p) {
-        return p.getFileName().toString().equals(CURRENT_VLOG);
+    private static boolean samePath(Path first, Path second) {
+        return first.toAbsolutePath().normalize().equals(second.toAbsolutePath().normalize());
+    }
+
+    private static boolean isEmpty(Path file) throws VeriLogIoException {
+        try {
+            return java.nio.file.Files.size(file) == 0;
+        } catch (java.io.IOException e) {
+            throw new VeriLogIoException("io.read_failed", e, file.toString());
+        }
     }
 
     private byte[] buildAad(byte[] prefix, byte type, long seq) {

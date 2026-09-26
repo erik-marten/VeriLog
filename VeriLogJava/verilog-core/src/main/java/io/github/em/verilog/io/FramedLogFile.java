@@ -23,14 +23,12 @@ public final class FramedLogFile implements Closeable {
 
     public static final byte TYPE_LOG = 0x01;
 
-    private static final byte[] MAGIC = new byte[]{'V', 'L', 'O', 'G'};
     private static final VlogHeaderCodec HEADER_CODEC = new VlogHeaderCodec();
     private static final int FIXED_HEADER_LEN = 4 + 1 + 1 + 2; // magic + version + flags + headerLen
     private static final int TYPE_BYTES = 1;
     private static final int SEQ_BYTES = 8;
     private static final int MAX_PAYLOAD_LEN = 64 * 1024 * 1024;
     private static final long HEADER_LEN_OFFSET = 4L + 1 + 1; // magic + version + flags
-    private static final int HEADER_LEN_BYTES = 2;
     private static final int FRAME_HEADER_BYTES = TYPE_BYTES + SEQ_BYTES;
 
     private final FileChannel ch;
@@ -140,49 +138,8 @@ public final class FramedLogFile implements Closeable {
         ByteBuffer hdr = ByteBuffer.allocate(headerLen);
         readFully(hdr);
 
-        // Recovery: truncate any partial frame at end
-        truncateToLastFullFrame();
-    }
-
-    private void truncateToLastFullFrame() throws IOException {
-        long size = ch.size();
-        long pos;
-
-        // read headerLen to jump correctly
-        ch.position(HEADER_LEN_OFFSET);
-        ByteBuffer hb = ByteBuffer.allocate(HEADER_LEN_BYTES).order(ByteOrder.BIG_ENDIAN);
-        readFully(hb);
-        hb.flip();
-        int headerLen = hb.getShort() & 0xFFFF;
-        pos = (long) FIXED_HEADER_LEN + headerLen;
-
-        long lastGood = pos;
-        ch.position(pos);
-
-        ByteBuffer lenBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
-        while (true) {
-            lenBuf.clear();
-            int r = ch.read(lenBuf);
-            if (r < Integer.BYTES) {
-                break;
-            }
-
-            lenBuf.flip();
-            int payloadLen = lenBuf.getInt();
-
-            long frameEnd = ch.position() + payloadLen;
-            if (payloadLen <= 0 || payloadLen > MAX_PAYLOAD_LEN || frameEnd > size) {
-                break;
-            }
-
-            ch.position(frameEnd);
-            lastGood = frameEnd;
-        }
-
-        if (lastGood != size) {
-            ch.truncate(lastGood);
-            ch.force(true);
-        }
+        // Structural repair is shared with the managed Logback appender.
+        FramedTailRepair.truncateIncompleteTail(ch);
     }
 
     private long scanNextSeq() throws IOException {
