@@ -9,6 +9,7 @@
  */
 package io.github.em.verilog.logger;
 
+import io.github.em.verilog.audit.AuditEvent;
 import io.github.em.verilog.audit.HashChainState;
 import io.github.em.verilog.audit.SignedEntryFactory;
 import io.github.em.verilog.errors.VeriLogCryptoException;
@@ -191,16 +192,19 @@ final class LogWriter implements Runnable {
         if (f == null) throw new IOException("Log file is not open");
 
         try {
-            byte[] signedEntryJson = signedFactory.buildSignedEntryJsonUtf8(
-                    chain,
-                    cfg.getSigner(),
+            AuditEvent auditEvent = new AuditEvent(
+                    ev.ts,
                     cfg.getActor(),
                     ev.level.name(),
                     Map.of(
                             "msg", ev.message,
                             "fields", ev.fields
-                    ),
-                    ev.ts
+                    )
+            );
+            byte[] signedEntryJson = signedFactory.buildSignedEntryJsonUtf8(
+                    chain,
+                    cfg.getSigner(),
+                    auditEvent
             );
 
             long seqForFrame = chain.nextSeq() - 1; // just allocated it

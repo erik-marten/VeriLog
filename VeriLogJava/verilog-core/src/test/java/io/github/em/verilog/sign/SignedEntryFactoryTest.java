@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.em.verilog.CanonicalJson;
 import io.github.em.verilog.CryptoUtil;
+import io.github.em.verilog.audit.AuditEvent;
 import io.github.em.verilog.audit.HashChainState;
 import io.github.em.verilog.audit.SignedEntryFactory;
 import io.github.em.verilog.reader.BcEcdsaVerifier;
@@ -14,6 +15,8 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -24,6 +27,78 @@ class SignedEntryFactoryTest {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
         kpg.initialize(256);
         return kpg.generateKeyPair();
+    }
+
+    @Test
+    void should_produce_identical_bytes_for_legacy_arguments_and_audit_event() throws Exception {
+        Instant timestamp = Instant.parse("2026-02-20T12:34:56.789Z");
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("active", true);
+        attributes.put("roles", List.of("admin", "auditor"));
+        attributes.put("loginCount", 7L);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("user", "alice");
+        data.put("attributes", attributes);
+        LogSigner deterministicSigner = new LogSigner() {
+            @Override
+            public String keyId() {
+                return "fixed-key-id";
+            }
+
+            @Override
+            public byte[] signEntryHash(byte[] entryHash32) {
+                byte[] signature = new byte[64];
+                System.arraycopy(entryHash32, 0, signature, 0, entryHash32.length);
+                System.arraycopy(entryHash32, 0, signature, entryHash32.length, entryHash32.length);
+                return signature;
+            }
+        };
+
+        SignedEntryFactory factory = new SignedEntryFactory();
+        byte[] legacyBytes = factory.buildSignedEntryJsonUtf8(
+                HashChainState.fresh(),
+                deterministicSigner,
+                "api",
+                "USER_LOGIN",
+                data,
+                timestamp
+        );
+        byte[] eventBytes = factory.buildSignedEntryJsonUtf8(
+                HashChainState.fresh(),
+                deterministicSigner,
+                new AuditEvent(timestamp, "api", "USER_LOGIN", data)
+        );
+
+        assertArrayEquals(legacyBytes, eventBytes);
+    }
+
+    @Test
+    void should_preserve_null_data_as_json_null() throws Exception {
+        LogSigner signer = new LogSigner() {
+            @Override
+            public String keyId() {
+                return "fixed-key-id";
+            }
+
+            @Override
+            public byte[] signEntryHash(byte[] entryHash32) {
+                return new byte[64];
+            }
+        };
+        AuditEvent event = new AuditEvent(
+                Instant.parse("2026-02-20T12:34:56.789Z"),
+                "api",
+                "NULL_DATA",
+                null
+        );
+
+        byte[] json = new SignedEntryFactory().buildSignedEntryJsonUtf8(
+                HashChainState.fresh(),
+                signer,
+                event
+        );
+
+        assertTrue(new ObjectMapper().readTree(json).get("event").isNull());
     }
 
     @Test
