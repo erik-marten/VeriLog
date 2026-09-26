@@ -61,6 +61,43 @@ This ensures:
 
 ------
 
+## Java modules and build
+
+The Gradle build lives in `VeriLogJava/` and contains three modules:
+
+| Module | Contents |
+| --- | --- |
+| `verilog-core` | Framework-independent crypto, framing, signing, readers, verification, and errors. The existing custom logger remains here temporarily. |
+| `verilog-cli` | The verification CLI, depending on `verilog-core`. |
+| `verilog-logback` | A library module depending on `verilog-core`, reserved for future Logback integration. `VeriLogEncoder` is not implemented yet. |
+
+`verilog-core` has no SLF4J or Logback dependency. Existing Java packages and the `.vlog` format are preserved.
+
+Use JDK 17 or newer to run Gradle and install JDK 11 for compilation and tests. From the repository root:
+
+```sh
+./gradlew build
+```
+
+This builds all modules, runs their tests and coverage checks, and creates the executable CLI JAR at `VeriLogJava/verilog-cli/build/libs/verilog-cli-1.0-SNAPSHOT-all.jar`. The wrapper also works from `VeriLogJava/`.
+
+Run verification through Gradle, replacing the example key and file values:
+
+```sh
+./gradlew :verilog-cli:run --args="verify --file logs/current.vlog --dek-hex <64-hex-digits> --pub public.pem"
+```
+
+Paths passed through Gradle are relative to `VeriLogJava/`, preserving the existing CLI launch behavior.
+
+Or run the executable JAR with Java 11 or newer:
+
+```sh
+java -jar VeriLogJava/verilog-cli/build/libs/verilog-cli-1.0-SNAPSHOT-all.jar \
+  verify --file logs/current.vlog --dek-hex "$VERILOG_DEK_HEX" --pub public.pem
+```
+
+------
+
 ## Architecture Overview
 
 ```

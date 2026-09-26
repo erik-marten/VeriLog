@@ -1,0 +1,4 @@
+// Reserved for the Logback integration; VeriLogEncoder is not implemented yet.
+dependencies {
+    implementation project(":verilog-core")
+}

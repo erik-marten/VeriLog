@@ -1,0 +1,46 @@
+import java.time.Year
+
+plugins {
+    id "application"
+    id "com.gradleup.shadow"
+}
+
+dependencies {
+    implementation project(":verilog-core")
+}
+
+application {
+    mainClass = "io.github.em.verilog.cli.VeriLogCli"
+}
+
+// Preserve relative CLI paths when launched through Gradle.
+tasks.withType(JavaExec).configureEach {
+    workingDir = rootProject.projectDir
+}
+
+tasks.register("generateLicense", Copy) {
+    from(rootProject.file("LICENSE.template"))
+    into(layout.buildDirectory.dir("generated"))
+    rename { "LICENSE" }
+
+    expand(year: Year.now().value, author: "Erik Marten")
+    filteringCharset = "UTF-8"
+}
+
+tasks.named("shadowJar") {
+    archiveClassifier.set("all")
+    mergeServiceFiles()
+    dependsOn tasks.named("generateLicense")
+
+    from(layout.buildDirectory.file("generated/LICENSE")) { into("META-INF") }
+    from(rootProject.file("NOTICE")) { into("META-INF"); rename { "NOTICE-VERILOGGER" } }
+    from(rootProject.file("THIRD-PARTY-LICENSES")) { into("META-INF") }
+
+    manifest {
+        attributes "Main-Class": application.mainClass.get()
+    }
+}
+
+tasks.named("build") {
+    dependsOn tasks.named("shadowJar")
+}

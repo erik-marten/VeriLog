@@ -1,29 +1,73 @@
-import java.time.Year
-
 plugins {
-    id "java-library"
-    id "com.gradleup.shadow" version "9.3.1"
-    id "application"
-    id "jacoco"
+    id "base"
+    id "com.gradleup.shadow" version "9.3.1" apply false
     id "org.sonarqube" version "7.1.0.6387"
 }
 
-group = "io.github.em"
-version = "1.0-SNAPSHOT"
+allprojects {
+    group = "io.github.em"
+    version = "1.0-SNAPSHOT"
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(11)
+    repositories {
+        mavenCentral()
     }
 }
 
-repositories {
-    mavenCentral()
-}
+subprojects {
+    apply plugin: "java-library"
+    apply plugin: "jacoco"
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(11)
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(11)
+        }
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = "UTF-8"
+        options.release = 11
+    }
+
+    dependencies {
+        testImplementation platform("org.junit:junit-bom:5.10.3")
+        testImplementation "org.junit.jupiter:junit-jupiter"
+        testImplementation "org.mockito:mockito-core:5.21.0"
+        testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    }
+
+    jacoco {
+        toolVersion = "0.8.11"
+    }
+
+    tasks.named("test") {
+        useJUnitPlatform()
+        finalizedBy tasks.named("jacocoTestReport")
+    }
+
+    tasks.named("jacocoTestReport") {
+        dependsOn tasks.named("test")
+        reports {
+            xml.required = true
+            html.required = true
+            csv.required = false
+        }
+    }
+
+    tasks.named("jacocoTestCoverageVerification") {
+        dependsOn tasks.named("test")
+        violationRules {
+            rule {
+                limit {
+                    counter = 'LINE'
+                    value = 'COVEREDRATIO'
+                    minimum = 0.80
+                }
+            }
+        }
+    }
+
+    tasks.named("check") {
+        dependsOn tasks.named("jacocoTestCoverageVerification")
     }
 }
 
@@ -34,91 +78,9 @@ sonar {
     }
 }
 
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = "UTF-8"
-    options.release = 11
-}
-
-dependencies {
-    api "org.bouncycastle:bcprov-jdk18on:1.78.1"
-    api "org.bouncycastle:bcpkix-jdk18on:1.78.1"
-    api "com.fasterxml.jackson.core:jackson-databind:2.17.2"
-
-    testImplementation platform("org.junit:junit-bom:5.10.3")
-    testImplementation "org.junit.jupiter:junit-jupiter"
-    testImplementation "org.mockito:mockito-core:5.21.0"
-    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
-}
-
-application {
-    mainClass = "io.github.em.verilog.cli.VeriLogCli"
-}
-
-jacoco {
-    toolVersion = "0.8.11"
-}
-
-/**
- * Tests + JaCoCo Reports
- */
-test {
-    useJUnitPlatform()
-    finalizedBy jacocoTestReport
-}
-
-jacocoTestReport {
-    dependsOn test
-    reports {
-        xml.required = true
-        html.required = true
-        csv.required = false
+// Keep qualified root lifecycle tasks useful as well as Gradle's task selectors.
+["assemble", "check", "build", "clean"].each { taskName ->
+    tasks.named(taskName) {
+        dependsOn subprojects.collect { "${it.path}:${taskName}" }
     }
-}
-jacocoTestCoverageVerification {
-    violationRules {
-        rule {
-            limit {
-                counter = 'LINE'
-                value = 'COVEREDRATIO'
-                minimum = 0.80
-            }
-        }
-    }
-}
-
-check.dependsOn jacocoTestCoverageVerification
-/**
- * generate LICENSE from Template
- */
-def currentYear = Year.now().value
-def author = "Erik Marten"
-
-tasks.register("generateLicense", Copy) {
-    from("LICENSE.template")
-    into("$buildDir/generated")
-    rename { "LICENSE" }
-
-    expand(year: currentYear, author: author)
-    filteringCharset = "UTF-8"
-}
-
-/**
- * FatJar via Shadow
- */
-shadowJar {
-    archiveClassifier.set("all")
-    mergeServiceFiles()
-    dependsOn tasks.named("generateLicense")
-
-    from("$buildDir/generated/LICENSE") { into("META-INF") }
-    from("NOTICE") { into("META-INF"); rename { "NOTICE-VERILOGGER" } }
-    from("THIRD-PARTY-LICENSES") { into("META-INF") }
-
-    manifest {
-        attributes "Main-Class": application.mainClass.get()
-    }
-}
-
-tasks.build {
-    dependsOn tasks.shadowJar
 }

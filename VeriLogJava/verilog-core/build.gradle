@@ -1,0 +1,5 @@
+dependencies {
+    api "org.bouncycastle:bcprov-jdk18on:1.78.1"
+    api "org.bouncycastle:bcpkix-jdk18on:1.78.1"
+    api "com.fasterxml.jackson.core:jackson-databind:2.17.2"
+}

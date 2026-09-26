@@ -1,1 +1,3 @@
 rootProject.name = 'VeriLogJava'
+
+include 'verilog-core', 'verilog-logback', 'verilog-cli'
