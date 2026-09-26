@@ -44,7 +44,7 @@ public final class FramedTailRepair {
         if (fixed.get() != 1) throw new IOException("Unsupported VLOG version");
         fixed.get(); // flags
         int headerLength = fixed.getShort() & 0xffff;
-        long lastComplete = FIXED_HEADER_LENGTH + headerLength;
+        long lastComplete = (long) FIXED_HEADER_LENGTH + headerLength;
         if (lastComplete > size) throw new EOFException("Incomplete VLOG header");
 
         ByteBuffer length = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);

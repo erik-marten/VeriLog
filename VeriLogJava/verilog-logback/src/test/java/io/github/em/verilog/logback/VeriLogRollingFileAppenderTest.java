@@ -231,6 +231,38 @@ class VeriLogRollingFileAppenderTest {
     }
 
     @Test
+    void missing_rolling_or_triggering_policy_prevents_startup() {
+        Path active = tempDir.resolve("audit.vlog");
+        VeriLogRollingFileAppender noRollingPolicy = appender(active, 10_000);
+        noRollingPolicy.setRollingPolicy(null);
+        noRollingPolicy.start();
+        assertFalse(noRollingPolicy.isStarted());
+
+        VeriLogRollingFileAppender noTriggeringPolicy = appender(active, 10_000);
+        noTriggeringPolicy.setTriggeringPolicy(null);
+        noTriggeringPolicy.start();
+        assertFalse(noTriggeringPolicy.isStarted());
+        assertFalse(Files.exists(active));
+    }
+
+    @Test
+    void invalid_active_extension_and_compressed_policy_fail_before_file_creation() {
+        Path invalidActive = tempDir.resolve("audit.log");
+        VeriLogRollingFileAppender invalidName = appender(invalidActive, 10_000);
+        invalidName.start();
+        assertFalse(invalidName.isStarted());
+        assertFalse(Files.exists(invalidActive));
+
+        Path active = tempDir.resolve("audit.vlog");
+        VeriLogRollingFileAppender compressed = appender(active, 10_000, ".vlog.gz");
+        compressed.start();
+        assertFalse(compressed.isStarted());
+        assertFalse(Files.exists(active));
+        assertTrue(compressed.getContext().getStatusManager().getCopyOfStatusList().stream()
+                .anyMatch(status -> status.getMessage().contains("compressed rolling archives")));
+    }
+
+    @Test
     void rejects_zero_byte_rotated_file_and_unsafe_modes_and_compression() throws Exception {
         Path active = tempDir.resolve("audit.vlog");
         Files.createFile(tempDir.resolve("older.vlog"));
@@ -300,6 +332,10 @@ class VeriLogRollingFileAppenderTest {
     }
 
     private VeriLogRollingFileAppender appender(Path active, long maxBytes) {
+        return appender(active, maxBytes, ".vlog");
+    }
+
+    private VeriLogRollingFileAppender appender(Path active, long maxBytes, String archiveExtension) {
         LoggerContext context = new LoggerContext();
         VeriLogRollingFileAppender appender = new VeriLogRollingFileAppender();
         appender.setContext(context);
@@ -314,7 +350,7 @@ class VeriLogRollingFileAppenderTest {
                 new SizeAndTimeBasedRollingPolicy<>();
         policy.setContext(context);
         policy.setParent(appender);
-        policy.setFileNamePattern(active.getParent().resolve("archive.%d{yyyy-MM-dd}.%i.vlog").toString());
+        policy.setFileNamePattern(active.getParent().resolve("archive.%d{yyyy-MM-dd}.%i" + archiveExtension).toString());
         policy.setMaxFileSize(new FileSize(maxBytes));
         policy.start();
         appender.setRollingPolicy(policy);
