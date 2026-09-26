@@ -109,7 +109,7 @@ public final class FramedFileReader implements AutoCloseable {
 
             lenBuf.flip();
             int payloadLen = lenBuf.getInt();
-            if (payloadLen <= 0 || payloadLen > 64 * 1024 * 1024) {
+            if (payloadLen < 1 + 8 + 24 || payloadLen > 64 * 1024 * 1024) {
                 throw new VeriLogFormatException("format.invalid_payload_length", payloadLen);
             }
 

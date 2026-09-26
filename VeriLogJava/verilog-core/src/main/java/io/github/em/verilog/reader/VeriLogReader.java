@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.em.verilog.CanonicalJson;
 import io.github.em.verilog.CryptoUtil;
+import io.github.em.verilog.audit.HashChainState;
 import io.github.em.verilog.crypto.XChaCha20Poly1305;
 import io.github.em.verilog.errors.*;
 import org.bouncycastle.crypto.InvalidCipherTextException;
@@ -298,6 +299,44 @@ public final class VeriLogReader {
             boolean stopOnFirstFailure
     ) throws VeriLogException {
 
+        return verifyDirectoryWithState(logDir, dek32, keyResolver, stopOnFirstFailure).report;
+    }
+
+    /**
+     * Verifies every available entry before returning a fresh, independent state for
+     * the next signed entry. A trailing partial frame in current.vlog is ignored.
+     */
+    public HashChainState recoverChainState(Path logDir, byte[] dek32, PublicKeyResolver keyResolver)
+            throws VeriLogException {
+        DirectoryTraversal traversal = verifyDirectoryWithState(logDir, dek32, keyResolver, true);
+        if (!traversal.report.allOk()) {
+            DirectoryVerifyReport.FileResult failure = traversal.report.results()
+                    .get(traversal.report.results().size() - 1);
+            throw new VeriLogFormatException("format.chain_verification_failed",
+                    failure.file, failure.lastSeqOrFailSeq, failure.reason);
+        }
+        if (traversal.state.lastOk == 0) {
+            return HashChainState.fresh();
+        }
+        return new HashChainState(traversal.state.expectedSeq, traversal.state.prevHashExpected);
+    }
+
+    private static final class DirectoryTraversal {
+        final DirectoryVerifyReport report;
+        final State state;
+
+        DirectoryTraversal(DirectoryVerifyReport report, State state) {
+            this.report = report;
+            this.state = state;
+        }
+    }
+
+    private DirectoryTraversal verifyDirectoryWithState(
+            Path logDir,
+            byte[] dek32,
+            PublicKeyResolver keyResolver,
+            boolean stopOnFirstFailure
+    ) throws VeriLogException {
         Objects.requireNonNull(logDir, "logDir");
         Objects.requireNonNull(dek32, "dek32");
         Objects.requireNonNull(keyResolver, "keyResolver");
@@ -323,7 +362,7 @@ public final class VeriLogReader {
 
             if (stopOnFirstFailure && !r.valid) break;
         }
-        return report;
+        return new DirectoryTraversal(report, state);
     }
 
     private static java.util.List<Path> listVlogFiles(Path logDir) throws VeriLogException {
